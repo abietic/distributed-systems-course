@@ -1,0 +1,1473 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 4-A · 单机事务：隔离级别、MVCC 与写偏斜</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+.scen{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.scen button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.two,.three{grid-template-columns:1fr}}
+.grid-wrap{overflow-x:auto}
+/* 异常矩阵 */
+.mx{border-collapse:separate;border-spacing:3px;font-size:13px}
+.mx th{font-size:11.5px;color:var(--ink-3);font-weight:600;text-align:center;padding:4px 6px;border:0}
+.mx th.rh{text-align:left;min-width:150px}
+.mx td{padding:0;border:0}
+.cellbtn{width:100%;min-width:86px;padding:9px 6px;border-radius:7px;border:1px solid var(--border);
+  background:var(--surface-2);color:var(--ink-2);font-family:var(--mono);font-size:11.5px;cursor:pointer;
+  transition:.12s;line-height:1.3}
+.cellbtn:hover{border-color:var(--ink-3)}
+.cellbtn.bad{background:rgba(208,59,59,.16);border-color:var(--crit);color:var(--crit)}
+.cellbtn.good{background:rgba(12,163,12,.14);border-color:var(--ok);color:var(--ok)}
+.cellbtn.na{opacity:.35;cursor:default}
+.cellbtn.sel{outline:2px solid var(--s1);outline-offset:1px}
+/* 时序表 */
+.sched{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px}
+.sched th{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;
+  padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}
+.sched td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.sched tr.now{background:var(--surface-2)}
+.t1{color:var(--s1)} .t2{color:var(--s2)}
+.opbox{border-radius:5px;padding:2px 7px;display:inline-block;background:var(--surface-2);border:1px solid var(--border)}
+.opbox.w{border-color:var(--s4)} .opbox.r{border-color:var(--s1)} .opbox.c{border-color:var(--s3)}
+.opbox.blk{border-color:var(--crit);color:var(--crit)}
+/* 版本链 */
+.vchain{display:flex;align-items:center;gap:0;flex-wrap:nowrap;font-family:var(--mono);font-size:12px;margin:8px 0}
+.ver{border:1px solid var(--border);border-radius:8px;padding:7px 11px;background:var(--surface-2);flex:none;text-align:center}
+.ver.vis{border-color:var(--ok);background:rgba(12,163,12,.14)}
+.ver.hid{opacity:.45}
+.arr{color:var(--ink-3);padding:0 7px;flex:none}
+.rvbox{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:12px 0}
+.rvf{border:1px solid var(--border);border-radius:8px;padding:8px 11px;background:var(--surface-2)}
+.rvf .k{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.rvf .v{font-family:var(--mono);font-size:14px;color:var(--ink);margin-top:2px}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 4-A</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：事务卖给你三个假设</a>
+    <a href="#s1">4.1 ACID 里只有两个半是真的</a>
+    <a href="#s2">4.2 隔离级别：按「禁止什么」定义的烂摊子</a>
+    <a href="#s3">4.3 并发异常动物园</a>
+    <a href="#s3" class="sub">▸ 实验：异常 × 隔离级别矩阵</a>
+    <a href="#s4">4.4 MVCC 与 ReadView</a>
+    <a href="#s4" class="sub">▸ 实验：可见性判定器</a>
+    <a href="#s5">4.5 当前读与 Next-Key Lock</a>
+    <a href="#s6">4.6 快照隔离与写偏斜</a>
+    <a href="#s6" class="sub">▸ 实验：医院值班表</a>
+    <a href="#s7">4.7 可串行化的三条路</a>
+    <a href="#s7" class="sub">▸ 实验：2PL vs SSI</a>
+    <a href="#s8">4.8 这一切到了分布式会怎样</a>
+    <a href="#s9">4.9 自测题（10 题）</a>
+    <a href="#s10">Lab 4-A · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 4-A · Single-Node Transactions: Isolation, MVCC &amp; Write Skew</div>
+  <h1>事务：你买的是三个假设，而第二个一直在打折</h1>
+  <p class="lead">Part 0 开篇说过：单机编程送你三个免费假设，分布式把它们一个个收走。<strong>事务做的是反向的事</strong>——它向并发的世界<em>卖</em>给你三个假设，让你可以像世界是单线程的那样写代码。</p>
+
+  <div style="display:grid;gap:6px;margin:18px 0">
+    <div class="pstep" style="border-color:var(--s3)"><div class="n" style="background:var(--s3)">A</div>
+      <div><div class="ti" style="font-weight:660">「要么全做，要么全不做」</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">原子性。这条卖得很实在，基本不打折——靠 undo log 回滚。</div></div></div>
+    <div class="pstep" style="border-color:var(--crit)"><div class="n" style="background:var(--crit)">I</div>
+      <div><div class="ti" style="font-weight:660">「我看到的世界是静止的，只有我一个人在改」</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)"><strong>隔离性。这一条一直在打折出售。</strong>「隔离级别」这四个字的全部含义，就是<em>这条假设你要买几成</em>。<br>
+      而最贵的那一档（可串行化）太贵，于是几乎所有人用的都是打折版——<u>包括你正在维护的那个系统</u>。</div></div></div>
+    <div class="pstep" style="border-color:var(--s4)"><div class="n" style="background:var(--s4)">D</div>
+      <div><div class="ti" style="font-weight:660">「写下去就不会消失」</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">持久性。这条的地基是 <code>fsync</code>——<em>正是 3-C 里 Raft 那条同样的地基</em>。地基塌了，上面的证明一起塌。</div></div></div>
+  </div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>这一章要让你能回答的一个问题</div>
+    <p style="margin-bottom:0">「我们用的是 MySQL 默认的<strong>可重复读</strong>，所以并发是安全的」——<br>
+    这句话在你的团队里大概率有人说过。这一章结束时你会知道它错在哪，以及那个叫<strong>写偏斜</strong>的洞长什么样：<em>RR 挡不住，快照隔离也挡不住，而且它不报错、不死锁、不留痕迹。</em></p>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>为什么分布式课程要回头补单机事务</div>
+    <p style="margin-bottom:0">因为分布式事务 = <strong>跨分片的原子提交（2PC 家族）</strong> + <strong>全局的版本与可见性（MVCC 的分布式版）</strong>。<br>
+    第二项就是 3-D 结尾说的「第二层版本」——TiKV 的 <code>start_ts</code>、Spanner 的 TrueTime 时间戳，本质上都是<strong>把 InnoDB 的 ReadView 搬到全局去</strong>。<br>
+    不把单机这层弄透，Percolator 那一章会变成背诵。</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>4.1 ACID：四个字母里只有两个半是真的</h2>
+  <p>ACID 这个缩写来自 Härder 与 Reuter 1983 年的论文。<strong>它首先是个好记的词，其次才是个精确的定义</strong>——这一点值得知道，因为四个字母的严谨程度差别很大。</p>
+
+  <table>
+    <thead><tr><th style="width:14%">字母</th><th style="width:30%">通常的说法</th><th>实际情况</th></tr></thead>
+    <tbody>
+      <tr><td><strong>A</strong> 原子性<br><span class="tag">atomicity</span></td><td>要么全做，要么全不做</td>
+        <td><strong>定义清晰。</strong>但注意它说的<em>不是</em>并发（那是 I），而是<strong>可中止性</strong>：出错时能把做了一半的东西撤回去。<br>
+        <span style="color:var(--ink-3)">Rich Hickey 说过，如果重新命名，这个字母应该叫 abortability。</span></td></tr>
+      <tr><td><strong>C</strong> 一致性<br><span class="tag" style="border-color:var(--warn);color:var(--warn)">凑数的</span></td><td>事务把数据库从一个一致状态带到另一个一致状态</td>
+        <td><strong>这个字母是为了拼出 ACID 才加进来的。</strong>「一致」指的是<u>你的应用定义的不变量</u>（账户余额不为负、值班医生至少 1 人）。<br>
+        <strong>数据库没有办法知道你的不变量是什么，所以它无法保证 C。</strong>能保证的只有外键、唯一约束、CHECK 这些你显式告诉它的部分。<br>
+        <em>C 是应用的责任，A、I、D 才是数据库的承诺。</em></td></tr>
+      <tr><td><strong>I</strong> 隔离性<br><span class="tag" style="border-color:var(--s1);color:var(--s1)">本章主线</span></td><td>并发事务互不干扰</td>
+        <td><strong>教科书定义是「效果等同于串行执行」（可串行化）。</strong><br>
+        但因为太贵，现实里绝大多数数据库<u>默认不提供它</u>，而是提供一个打过折的版本。<br>
+        <strong>「隔离级别」= 折扣力度</strong>。这一章 90% 的篇幅在这四个字母的第三个上。</td></tr>
+      <tr><td><strong>D</strong> 持久性<br><span class="tag">durability</span></td><td>提交后数据不会丢</td>
+        <td><strong>定义清晰，但地基脆弱。</strong>它最终落在 <code>fsync</code> 上，而 fsync 会被磁盘固件、虚拟化层、云盘缓存<u>骗</u>——<br>
+        <em>这正是 3-C 讲 Raft 持久化时的同一段话。</em>单机和分布式在这一层是同一个问题。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>ACID 的反面不是 BASE</div>
+    <p style="margin-bottom:0">BASE（Basically Available, Soft state, Eventually consistent）也是一个为了对仗而造出来的缩写，唯一确定的含义是「不是 ACID」。<br>
+    真正有意义的问题从来不是「选 ACID 还是选 BASE」，而是：<strong>我需要哪些不变量、愿意为它们付多少延迟和吞吐</strong>。<br>
+    <span style="color:var(--ink-3)">Part 2 的 CAP 也是同一类词——好记，但用来做技术决策时几乎总是被误用。</span></p>
+  </div>
+
+  <h3>单对象 vs 多对象</h3>
+  <p>还有一个常被跳过的区分：</p>
+  <div class="two">
+    <div class="card" style="margin:0"><div class="card-t">单对象写</div>
+      <p style="margin-bottom:0">「把这一行的这个字段改掉」。几乎所有存储引擎——包括 Redis、包括大多数 NoSQL——都提供单对象的原子性和隔离性。<br>
+      <span style="color:var(--ink-3)">这是免费的，因为一个对象天然就是一个锁的粒度。</span></p></div>
+    <div class="card" style="margin:0"><div class="card-t">多对象事务</div>
+      <p style="margin-bottom:0">「把 A 的余额减 100，同时把 B 的余额加 100」。这才是事务真正的难点，也是<strong>分布式系统里最贵的东西</strong>——因为 A 和 B 可能在不同的分片、不同的机房。<br>
+      <span style="color:var(--ink-3)">Part 4-B 的 2PC/TCC/Saga 全部在解决这一件事。</span></p></div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>4.2 隔离级别：一个按「禁止什么」定义的烂摊子</h2>
+  <p>ANSI SQL-92 定义隔离级别的方式是<strong>列举它禁止哪些异常</strong>：</p>
+
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:24%">级别</th><th style="width:19%">脏读</th><th style="width:19%">不可重复读</th><th style="width:19%">幻读</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>READ UNCOMMITTED</code></td><td style="color:var(--crit)">可能</td><td style="color:var(--crit)">可能</td><td style="color:var(--crit)">可能</td><td>几乎无人使用</td></tr>
+      <tr><td><code>READ COMMITTED</code></td><td style="color:var(--ok)">禁止</td><td style="color:var(--crit)">可能</td><td style="color:var(--crit)">可能</td><td><strong>PostgreSQL / Oracle / SQL Server 的默认</strong></td></tr>
+      <tr><td><code>REPEATABLE READ</code></td><td style="color:var(--ok)">禁止</td><td style="color:var(--ok)">禁止</td><td style="color:var(--crit)">可能</td><td><strong>MySQL InnoDB 的默认</strong></td></tr>
+      <tr><td><code>SERIALIZABLE</code></td><td style="color:var(--ok)">禁止</td><td style="color:var(--ok)">禁止</td><td style="color:var(--ok)">禁止</td><td>效果等同于串行执行</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>这张表你大概背过。<strong>但它是个设计错误</strong>，1995 年 Berenson 等人的论文 <em>A Critique of ANSI SQL Isolation Levels</em> 就把它拆掉了。三个理由：</p>
+
+  <div class="axm" style="display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:14px 0">
+    <div class="b" style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--crit);width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px">1</div>
+    <div><strong>「禁止这三种异常」不等于「安全」。</strong>异常的清单是<em>不完整</em>的。<strong>丢失更新</strong>和<strong>写偏斜</strong>都不在 ANSI 的三种异常里，所以一个级别可以合法地宣称「我禁止了全部三种异常」，同时对它们完全不设防。<u>这正是 RR 的处境。</u></div>
+  </div>
+  <div class="axm" style="display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:14px 0">
+    <div class="b" style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--crit);width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px">2</div>
+    <div><strong>异常本身的定义含糊。</strong>比如「幻读」的原始表述是基于锁的实现来描述的，换成 MVCC 实现之后完全对不上号。</div>
+  </div>
+  <div class="axm" style="display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:14px 0">
+    <div class="b" style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--crit);width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px">3</div>
+    <div><strong>各家实现的同名级别根本不是一回事。</strong>见下表——<em>同一句 <code>SET TRANSACTION ISOLATION LEVEL REPEATABLE READ</code>，在三个数据库里是三种不同的东西。</em></div>
+  </div>
+
+  <h3>同名不同物：各家的实际行为</h3>
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:17%">你写的级别</th><th style="width:17%">MySQL InnoDB</th><th style="width:20%">PostgreSQL</th><th style="width:20%">Oracle</th><th>后果</th></tr></thead>
+    <tbody>
+      <tr><td><code>READ UNCOMMITTED</code></td><td>真的脏读</td><td><strong>静默升级为 RC</strong>（PG 根本没实现脏读）</td><td>不支持，报错</td><td>同一段代码，行为三样</td></tr>
+      <tr><td><code>REPEATABLE READ</code></td><td>MVCC 快照读 + Next-Key Lock。<br><strong>不是快照隔离</strong>（无 first-committer-wins）</td><td><strong>实际是快照隔离（SI）</strong>，有 first-committer-wins，会抛 <code>could not serialize</code></td><td>不支持这个级别</td><td>PG 会让你的事务失败重试，MySQL 会默默让你成功——<em>而两者都可能有写偏斜</em></td></tr>
+      <tr><td><code>SERIALIZABLE</code></td><td>把所有普通 <code>SELECT</code> 隐式转成 <code>LOCK IN SHARE MODE</code>（2PL 风格）</td><td><strong>SSI</strong>（可串行化快照隔离）：乐观检测，冲突时中止</td><td><strong>实际是快照隔离</strong>，<u>并不可串行化</u>，写偏斜照样发生</td><td><strong style="color:var(--crit)">Oracle 的 SERIALIZABLE 挡不住写偏斜</strong>——这是数据库史上最著名的命名陷阱之一</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>把这条记住</div>
+    <p style="margin-bottom:0"><strong>隔离级别的名字不是规格说明，只是一个标签。</strong>你唯一能依赖的是「这个数据库的这个版本在这种并发模式下实际会发生什么」。<br>
+    所以这一章接下来不再讲级别的<em>名字</em>，只讲<strong>异常</strong>——异常是可以复现、可以计数的，名字不是。</p>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>4.3 并发异常动物园</h2>
+  <p>七种异常，按「谁读谁写」分成三类。<strong>后三种不在 ANSI 的清单里，而它们才是线上真正出事的那几种。</strong></p>
+
+  <div class="ladder" style="display:grid;gap:6px;margin:16px 0">
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--s4)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">脏写 dirty write</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">写-写</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">覆盖了另一个<strong>尚未提交</strong>的事务写的值。后果：那个事务回滚时，把你的值也一起撤了。<br>
+      <em>几乎所有数据库在所有级别都禁止它</em>——靠行级排他锁，持有到提交。这是唯一一个「白送」的。</div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--s4)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">脏读 dirty read</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">读-写</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">读到了另一个事务<strong>尚未提交</strong>的值。那个事务一旦回滚，你读到的是一个<u>从未存在过的世界</u>。</div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--s4)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">不可重复读 / 读偏斜</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">non-repeatable read</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">同一个事务里读两次同一行，值变了。<strong>更危险的形式叫读偏斜</strong>：分两次读 A 和 B 两个账户，中间有人从 A 转账到 B，于是你看到的总额<u>凭空少了 100</u>——两次读各自都是「已提交的值」，合起来却是一个从未存在过的状态。</div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--s4)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">幻读 phantom read</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">范围查询</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">同一个范围查询两次，<strong>行数变了</strong>（别人插入或删除了落在范围里的行）。和不可重复读的区别：那个是「同一行变了」，这个是「多了/少了行」。<br>
+      <span style="color:var(--ink-3)">锁能锁住已存在的行，锁不住「还不存在的行」——这就是需要间隙锁的原因。</span></div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--crit)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">丢失更新 lost update</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">不在 ANSI 清单里</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)"><strong>读-改-写</strong>循环：两个事务都读到 100，都算出 110，都写回去 ⇒ 只加了一次。<br>
+      经典场景：计数器、库存扣减、把 JSON 读出来改一个字段再写回去。<br>
+      <em>MySQL RR 挡不住这个模式</em>（但如果你写成 <code>UPDATE x = x + 10</code>，那是「当前读」，就能挡住——<strong>取决于你怎么写 SQL，不取决于隔离级别</strong>）。</div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--crit)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">写偏斜 write skew</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">本章主角</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">两个事务<strong>读同一批数据</strong>做决策，然后<strong>各自写不同的行</strong>。因为写的行不冲突，没有任何锁会撞上；因为读的是快照，没有任何版本检查会失败。<br>
+      <strong style="color:var(--crit)">RR 挡不住，快照隔离挡不住，Oracle 的 SERIALIZABLE 也挡不住。</strong>而且不报错、不死锁、不留痕迹。§4.6 详述。</div></div>
+    <div class="lrung" style="display:grid;grid-template-columns:186px 1fr;gap:14px;align-items:start;padding:11px 15px;background:var(--surface);border:1px solid var(--border);border-radius:9px;border-left:3px solid var(--crit)">
+      <div><div class="nm" style="font-weight:660;font-size:14px">写偏斜的「插入」变体</div><div class="en" style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">phantom write skew</div></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">同样是「读一批数据做决策」，但决策的结果是<strong>插入一行新的</strong>：两个人同时查「这个会议室 10 点有人订吗」，都查到没有，都插入了预订。<br>
+      比普通写偏斜更难防——<u>连要加锁的那一行都还不存在</u>。解法是物化冲突或范围锁。</div></div>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 异常 × 隔离级别矩阵</div><div class="s">这张表不是抄来的，是下面这个迷你事务引擎跑出来的</div></div>
+    <div class="lab-b">
+      <p style="font-size:13px;color:var(--ink-2);margin-top:0">下面每个格子都是<strong>真的跑了一遍</strong>：一个实现了 MVCC 版本链、行锁、间隙锁和串行执行的迷你引擎，按给定时序执行两个事务，然后检查异常是否发生。<strong>点任意格子看完整时序重放。</strong></p>
+      <div class="grid-wrap"><div id="mx1"></div></div>
+      <div class="legend" style="margin-top:12px">
+        <span><i style="width:11px;height:11px;border-radius:3px;background:rgba(208,59,59,.3);border:1px solid var(--crit);display:inline-block"></i>异常发生</span>
+        <span><i style="width:11px;height:11px;border-radius:3px;background:rgba(12,163,12,.25);border:1px solid var(--ok);display:inline-block"></i>被挡住</span>
+              </div>
+      <div id="o1" style="margin-top:18px"></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>读这张表的正确姿势</div>
+    <p style="margin-bottom:0">看最后两行（写偏斜）。<strong>RR 那一列是红的。</strong><br>
+    这意味着：你把隔离级别从 RC 调到 RR，解决了不可重复读和幻读，<em>但对写偏斜一点帮助都没有</em>——而写偏斜恰恰是业务不变量被破坏的那一类。<br>
+    「RR + FOR UPDATE」那一列告诉你真正的解法：<strong>把隐式的读变成显式的锁</strong>。</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2>4.4 MVCC 与 ReadView：InnoDB 的快照是怎么做出来的</h2>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>先纠一个极常见的混淆：版本信息在 undo log，不在 redo log</div>
+    <p style="margin-bottom:0"><strong>redo log</strong> 是<em>物理/物理逻辑</em>日志：「把表空间 5 第 137 页 offset 92 处的 4 个字节改成 0x2A」。它只用于崩溃恢复时的 roll-forward，<u>和可见性判断毫无关系</u>。<br>
+    <strong>undo log</strong> 才是 MVCC 的载体：它保存每一行的<em>历史版本</em>，既用于回滚，也用于快照读。<br>
+    <span style="color:var(--ink-3)">搞混的代价：会想不通「redo log 都刷盘了，事务怎么还能回滚」。</span></p>
+  </div>
+
+  <h3>行上的两个隐藏列</h3>
+  <p>InnoDB 的每一行除了你定义的字段，还偷偷带着：</p>
+<pre><code>| id | name  | balance | <span class="cm">DB_TRX_ID</span> | <span class="cm">DB_ROLL_PTR</span> |
+                            ↑             ↑
+              最后修改这行的事务 id   指向 undo log 里的上一个版本</code></pre>
+  <p>顺着 <code>DB_ROLL_PTR</code> 一路回溯，就得到这一行的<strong>版本链</strong>，从新到旧：</p>
+<pre><code>[trx=30 balance=300] → [trx=22 balance=200] → [trx=15 balance=100] → ...
+    最新已提交              undo log 里            更早的 undo</code></pre>
+
+  <h3>ReadView：决定我该看链上的哪一节</h3>
+  <p>快照读的那一刻，InnoDB 生成一个 ReadView，四个字段：</p>
+  <div class="rvbox">
+    <div class="rvf"><div class="k">m_ids</div><div class="v">[..]</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">创建这个 ReadView 时<strong>仍然活跃</strong>（未提交）的事务 id 集合</div></div>
+    <div class="rvf"><div class="k">min_trx_id</div><div class="v">min(m_ids)</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">活跃集合里最小的 id</div></div>
+    <div class="rvf"><div class="k">max_trx_id</div><div class="v">next id</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">下一个将要分配的事务 id（不是 max(m_ids)）</div></div>
+    <div class="rvf"><div class="k">creator_trx_id</div><div class="v">我自己</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">当前事务的 id</div></div>
+  </div>
+
+  <p>然后沿版本链从新往旧走，对每个版本的 <code>DB_TRX_ID</code> 做四步判定，<strong>第一个可见的就是答案</strong>：</p>
+<pre><code>trx == creator_trx_id        → 可见（我自己改的，当然看得见）
+trx &lt;  min_trx_id            → 可见（在我建 ReadView 之前就已提交）
+trx &gt;= max_trx_id            → <span class="cm">不</span>可见（在我之后才开始的事务）
+trx 在 m_ids 里              → <span class="cm">不</span>可见（我建 ReadView 时它还没提交）
+否则                          → 可见</code></pre>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>RC 和 RR 的实现差异只有一行</div>
+    <p style="margin-bottom:0"><strong>RC：每条语句都新建一个 ReadView。</strong>所以别人刚提交的，你下一条语句就看得见 ⇒ 不可重复读。<br>
+    <strong>RR：整个事务只在第一次快照读时建一个 ReadView，之后一直复用。</strong>所以事务期间世界是静止的 ⇒ 可重复读。<br>
+    <em>就这一个区别。</em>两个级别共用同一套版本链、同一套判定算法。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · ReadView 可见性判定器</div><div class="s">改一改活跃事务集合，看同一条版本链上的答案怎么跳</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>当前事务 id（creator） <span id="l2c">25</span></label><input type="range" id="i2c" min="10" max="40" value="25"></div>
+        <div class="f" style="min-width:230px"><label>此刻仍未提交的事务（m_ids）</label>
+          <div id="mids" style="display:flex;flex-wrap:wrap;gap:5px"></div></div>
+      </div>
+      <div class="rvbox" id="rv2"></div>
+      <div class="card" style="margin:0"><div class="card-t">balance 这一行的版本链（新 → 旧）</div>
+        <div class="grid-wrap"><div class="vchain" id="vc2"></div></div>
+        <div id="why2" style="margin-top:12px"></div>
+      </div>
+      <div id="o2" style="margin-top:14px"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s5">
+  <h2>4.5 当前读与 Next-Key Lock：MVCC 管不到的那一半</h2>
+  <p>MVCC 只服务<strong>快照读</strong>。下面这些是<strong>当前读</strong>——它们读的是<u>最新版本</u>，绕过版本链：</p>
+<pre><code>SELECT ... <span class="cm">FOR UPDATE</span>          <span class="cm">-- 排他</span>
+SELECT ... <span class="cm">LOCK IN SHARE MODE</span>  <span class="cm">-- 共享（8.0 起写作 FOR SHARE）</span>
+UPDATE ...
+DELETE ...
+INSERT ...                       <span class="cm">-- 隐含一次唯一性检查，也是当前读</span></code></pre>
+  <p>为什么必须读最新版本？<strong>因为要改的东西必须是当下真实存在的那一份</strong>——你不能基于半分钟前的快照去扣库存。</p>
+  <p>于是 MVCC 在这里帮不上忙，InnoDB 换成<strong>锁</strong>：</p>
+
+  <div class="three">
+    <div class="card" style="margin:0"><div class="card-t">Record Lock</div>
+      <p style="margin-bottom:0">锁住<strong>索引上的一条记录</strong>。注意是索引，不是行——没走索引就会退化成锁全表。</p></div>
+    <div class="card" style="margin:0;border-color:var(--s4)"><div class="card-t">Gap Lock 间隙锁</div>
+      <p style="margin-bottom:0">锁住两条记录<strong>之间的空隙</strong>，不让别人往缝里插。<br><em>它锁的是「还不存在的行」</em>——这是防幻读的关键。</p></div>
+    <div class="card" style="margin:0;border-color:var(--s3)"><div class="card-t">Next-Key Lock</div>
+      <p style="margin-bottom:0">Record Lock + 它前面的 Gap Lock，即左开右闭区间 <code>(a, b]</code>。<br><strong>InnoDB 在 RR 下的默认加锁单位。</strong></p></div>
+  </div>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>所以「InnoDB 的 RR 能防幻读」是两套机制拼出来的</div>
+    <p style="margin-bottom:0"><strong>快照读</strong>：靠整个事务复用同一个 ReadView ⇒ 新插入的行 <code>DB_TRX_ID</code> 落在 <code>m_ids</code> 或 <code>&gt;= max_trx_id</code> ⇒ 不可见。<br>
+    <strong>当前读</strong>：靠 Next-Key Lock 锁住范围 ⇒ 别人根本插不进来。<br>
+    缺任何一套都防不住。<span style="color:var(--ink-3)">而 ANSI 标准里的 RR 根本不要求防幻读——InnoDB 是超额交付。</span></p>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>间隙锁的账单</div>
+    <ul style="margin:6px 0 0;padding-left:20px">
+      <li><strong>并发下降</strong>：一条 <code>SELECT * FROM t WHERE age &gt; 18 FOR UPDATE</code> 可能锁住一大片区间，所有落在区间内的插入全部排队。</li>
+      <li><strong>死锁变多</strong>：间隙锁之间可以共存（都是 S 型间隙），但插入意向锁会和它冲突 ⇒ 两个事务各持一段间隙、各自想插对方的间隙 ⇒ 死锁。<em>这是线上最常见的 InnoDB 死锁形态。</em></li>
+      <li><strong>没走索引就是灾难</strong>：条件列上没有索引时，InnoDB 会对扫过的每一行加 Next-Key Lock，实际效果接近锁表。<span style="color:var(--ink-3)">「我只更新了一行，为什么把整个表锁住了」——十有八九是这个。</span></li>
+    </ul>
+    <p style="margin:10px 0 0">顺带：RC 级别下 InnoDB <strong>不加间隙锁</strong>（只加 record lock），而且对 UPDATE/DELETE，<em>WHERE 求值之后会释放不匹配行上的锁</em>——所以 RC 的并发通常明显好于 RR，代价是它防不住幻读。<em>很多高并发系统特意把 MySQL 调成 RC，就是为了这个。</em></p>
+  </div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>锁的是「扫过的行」，不是「匹配的行」</div>
+    <p style="margin-bottom:0">这一条最反直觉，官方文档原话：<em>"A locking read, an UPDATE, or a DELETE generally set record locks on every index record that is <strong>scanned</strong> in the processing of an SQL statement. It does not matter whether there are WHERE conditions in the statement that would exclude the row."</em> 以及：<em>"If you have no indexes suitable for your statement ... every row of the table becomes locked, which in turn blocks all inserts."</em><br>
+    所以 §4.6 值班表那条 <code>SELECT count(*) … WHERE on_call = true FOR UPDATE</code>：<code>on_call</code> 没索引 ⇒ 全表扫 ⇒ 锁全表；有索引 ⇒ 锁那段索引范围。可 <code>on_call</code> 是布尔列、选择性极差，优化器很可能不走索引——结果还是锁全表。<br>
+    <span style="color:var(--ink-3)">本章的迷你引擎为了简单，<code>FOR UPDATE</code> 只锁匹配的行——结论方向（加锁能挡住写偏斜）不变，但它低估了真实代价。</span></p>
+  </div>
+</section>
+
+<section id="s6">
+  <h2>4.6 快照隔离与写偏斜</h2>
+
+  <h3>先把快照隔离（SI）说清楚</h3>
+  <div class="kv" style="margin:14px 0">
+    <dt>规则一</dt><dd>事务开始时拿一个<strong>一致性快照</strong>，整个事务的读都从这个快照来（= RR 的 ReadView）</dd>
+    <dt>规则二</dt><dd><strong>first-committer-wins</strong>：两个事务写了同一行，先提交的赢，后提交的<em>被中止</em></dd>
+  </div>
+  <p><strong>MySQL 的 RR 只有规则一，没有规则二</strong>——它靠行锁把并发写<em>串起来</em>而不是中止掉。所以严格说 <u>MySQL RR 不是快照隔离</u>，它是「快照读 + 2PL 写」的混合体。<br>
+  PostgreSQL 的 <code>REPEATABLE READ</code> 才是真正的 SI，冲突时会抛 <code>ERROR: could not serialize access due to concurrent update</code>，逼你重试。</p>
+
+  <h3>写偏斜：SI 和 RR 共同的盲区</h3>
+  <p>经典场景：医院值班表，业务不变量是<strong>「任何时刻至少有 1 个医生在岗」</strong>。现在 Alice 和 Bob 都在岗，两人同时想请假。</p>
+
+<pre><code>T1 (Alice)                              T2 (Bob)
+──────────────────────────────────────────────────────────────────
+BEGIN                                   BEGIN
+SELECT count(*) FROM doctors
+  WHERE on_call = true
+  → <span class="cm">2</span>  ✓ 满足「&gt;= 2，我可以走」
+                                        SELECT count(*) FROM doctors
+                                          WHERE on_call = true
+                                          → <span class="cm">2</span>  ✓ 满足「&gt;= 2，我可以走」
+UPDATE doctors SET on_call = false
+  WHERE name = 'Alice'
+                                        UPDATE doctors SET on_call = false
+                                          WHERE name = 'Bob'
+COMMIT                                  COMMIT
+──────────────────────────────────────────────────────────────────
+结果：0 个医生在岗。不变量被破坏，而且<span class="cm">没有任何报错</span>。</code></pre>
+
+  <p><strong>为什么所有防线都失效：</strong></p>
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:28%">防线</th><th style="width:16%">拦住了吗</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td>行锁 / 脏写保护</td><td style="color:var(--crit)">没有</td><td>T1 改的是 Alice 那行，T2 改的是 Bob 那行。<strong>两把锁根本不在同一个东西上。</strong></td></tr>
+      <tr><td>Next-Key Lock</td><td style="color:var(--crit)">没有</td><td>两个 <code>SELECT</code> 都是普通快照读，<u>压根没加锁</u>。</td></tr>
+      <tr><td>SI 的 first-committer-wins</td><td style="color:var(--crit)">没有</td><td>它只检测<strong>写-写冲突</strong>。这里两个事务写的是不同的行，没有写-写冲突。</td></tr>
+      <tr><td>Oracle 的 <code>SERIALIZABLE</code></td><td style="color:var(--crit)">没有</td><td>它实际实现的是 SI，同上。<em>名字骗了你。</em></td></tr>
+      <tr><td>PostgreSQL 的 <code>SERIALIZABLE</code>（SSI）</td><td style="color:var(--ok)">拦住</td><td>SSI 会跟踪<strong>读-写依赖</strong>：它发现 T1 读的集合被 T2 的写改变了、反之亦然，构成了危险的依赖环 ⇒ 中止其中一个。</td></tr>
+      <tr><td>显式 <code>SELECT ... FOR UPDATE</code></td><td style="color:var(--ok)">拦住</td><td><strong>把「读」这个动作物化成一把锁。</strong>T2 的 SELECT 会阻塞，等 T1 提交后重新读到 count=1 ⇒ 它的检查失败，自己放弃。<br>
+      <span style="color:var(--ink-3)">代价见 §4.5：InnoDB 锁的是扫过的行，这条语句很可能锁全表。更好的做法是锁一个小的<strong>代理对象</strong>——比如先 <code>SELECT … FROM shifts WHERE id = ? FOR UPDATE</code> 锁住这一班次的那一行，所有想改这班值班的事务都在这一行上排队。</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>写偏斜的通用形状</div>
+    <p style="margin-bottom:0">凡是符合下面这个模式的代码，都要怀疑写偏斜：</p>
+<pre style="margin:10px 0 0"><code>BEGIN
+  SELECT ... ;                  <span class="cm">-- ① 读一批数据，检查某个条件</span>
+  if (条件满足) {                <span class="cm">-- ② 基于读到的结果做决策</span>
+      UPDATE / INSERT / DELETE;  <span class="cm">-- ③ 写入，而写的对象可能不是 ① 读的那些行</span>
+  }
+COMMIT</code></pre>
+    <p style="margin:10px 0 0"><strong>① 读到的东西是你决策的前提，而这个前提在 ③ 执行时可能已经被别人推翻了。</strong><br>
+    数据库看不见你脑子里的那个 <code>if</code>，它只看见读和写——所以它不知道这两者之间有因果关系。<br>
+    <em>真实例子：抢会议室、抢座位、库存扣减、唯一用户名检查、账户余额不能为负、值班表、双花。</em></p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 医院值班表：谁能挡住写偏斜</div><div class="s">同一份并发负载，四种防线各跑一遍，数不变量被破坏了几次</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>在岗医生数 <span id="l3d">2</span></label><input type="range" id="i3d" min="2" max="5" value="2"></div>
+        <div class="f"><label>同时请假的人数 <span id="l3c">2</span></label><input type="range" id="i3c" min="2" max="5" value="2"></div>
+        <div class="f"><label>试验次数 <span id="l3n">200</span></label><input type="range" id="i3n" min="20" max="500" step="20" value="200"></div>
+        <button class="primary" id="b3run">跑一遍</button>
+      </div>
+      <div id="o3"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>4.7 可串行化的三条路</h2>
+  <p>如果打折版太危险，为什么不都买全价的？因为全价的三种实现各有各的贵法。</p>
+
+  <div style="display:grid;gap:8px;margin:18px 0">
+    <div class="pstep" style="border-color:var(--s3)"><div class="n" style="background:var(--s3)">1</div><div>
+      <div class="ti" style="font-weight:660">实际串行执行 —— 干脆别并发</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">单线程按顺序跑完每个事务。<strong>可串行化的定义是「等价于某个串行顺序」，那最省事的实现就是真的串行。</strong><br>
+      能用的前提：① 整个工作集放得进内存 ② 事务必须<u>短</u>（不能有交互式等待）③ 通常要求事务以<strong>存储过程</strong>形式提交，一次性发过去，不能来回聊天。<br>
+      代表：Redis（单线程）、VoltDB / H-Store、Datomic。<br>
+      <span style="color:var(--ink-3)">吞吐天花板 = 单核。想扩展只能分区，而<u>跨分区事务会把优势全吃掉</u>——这个矛盾会在 Part 4-C 的 Calvin 里再次出现。</span></div></div>
+    <div class="pstep" style="border-color:var(--s4)"><div class="n" style="background:var(--s4)">2</div><div>
+      <div class="ti" style="font-weight:660">两阶段锁 2PL —— 悲观派，五十年的老办法</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">读加共享锁、写加排他锁；<strong>只增不减地获取（growing），到提交时一次性全放（shrinking）</strong>——这就是「两阶段」的意思。<br>
+      <strong style="color:var(--crit)">注意：2PL 和 2PC 完全是两回事。</strong>2PL 是单机并发控制，2PC 是跨节点原子提交。它们唯一的共同点是名字里都有个「两阶段」。<em>这是这门课里最容易混的一对术语。</em><br>
+      代价：① 锁等待导致延迟长尾极难看 ② 死锁需要检测和中止 ③ 范围查询要间隙锁，并发进一步下降。<br>
+      代表：MySQL <code>SERIALIZABLE</code>、SQL Server 默认、传统商业数据库。</div></div></div>
+    <div class="pstep" style="border-color:var(--s1)"><div class="n" style="background:var(--s1)">3</div><div>
+      <div class="ti" style="font-weight:660">可串行化快照隔离 SSI —— 乐观派，2008 年才出现</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">先按 SI 跑（读快照，不加读锁，全速前进），<strong>提交时才检查：我读到的前提，有没有被别人推翻？</strong>被推翻就中止重试。<br>
+      具体检测两种危险模式：① <em>读到了一个陈旧的 MVCC 版本</em>（我读之后，那个事务提交了）② <em>我读过的东西被别的事务改了</em>。构成危险依赖环就中止。<br>
+      代价：<strong>低冲突时几乎白送，高冲突时中止率飙升</strong>——每一次中止都意味着整个事务白做一遍，而白做的功照样烧 CPU。而且需要应用层<u>有正确的重试逻辑</u>。<br>
+      代表：PostgreSQL <code>SERIALIZABLE</code>、CockroachDB、FoundationDB。</div></div></div>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">4</div><div class="t">实验 4 · 2PL vs SSI：两种并发控制，两张不同的账单</div><div class="s">一个付「等待」，一个付「白做的功」——把热点集中度拉满，看哪张账单涨得快</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>数据热点集中度 <span id="l4h">30</span>%</label><input type="range" id="i4h" min="0" max="100" step="5" value="30"></div>
+        <div class="f"><label>并发事务数 <span id="l4c">12</span></label><input type="range" id="i4c" min="2" max="24" value="12"></div>
+        <div class="f"><label>每事务操作数 <span id="l4o">4</span></label><input type="range" id="i4o" min="2" max="10" value="4"></div>
+        <div class="f"><label>随机种子 <span id="l4s">7</span></label><input type="range" id="i4s" min="1" max="60" value="7"></div>
+      </div>
+      <div class="two">
+        <div class="card" style="margin:0"><div class="card-t">2PL（悲观：等锁 / 死锁中止）</div><div id="d4a"></div></div>
+        <div class="card" style="margin:0"><div class="card-t">SSI（乐观：全速跑 / 提交时检查）</div><div id="d4b"></div></div>
+      </div>
+      <div id="o4" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <h3>那实践中该怎么办</h3>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>一个可操作的决策顺序</div>
+    <ol style="margin:6px 0 0;padding-left:20px">
+      <li><strong>先问：我有哪些业务不变量？</strong>写下来。没写下来的不变量，数据库一定保护不了。</li>
+      <li><strong>能用数据库约束的，就用约束。</strong>唯一索引、外键、CHECK——它们是数据库<em>知道</em>的不变量，因此能真正保护。「抢唯一用户名」这类写偏斜，一个唯一索引就解决了，比任何隔离级别都可靠。</li>
+      <li><strong>剩下的，把读物化成锁。</strong><code>SELECT ... FOR UPDATE</code> 锁住你决策所依赖的那些行。这是最通用、最容易审查的办法。</li>
+      <li><strong>锁不到的（要插入的行还不存在），物化冲突。</strong>造一张「会议室-时间段」的占位表，把不存在的冲突变成一行真实的行，然后锁它。<em>丑，但有效。</em></li>
+      <li><strong>实在复杂的，上 SSI 并写好重试。</strong>前提是你的应用能正确重试——<u>重试逻辑写错比不用 SSI 更危险</u>。</li>
+    </ol>
+    <p style="margin:10px 0 0"><strong>不要做的事</strong>：把隔离级别从 RC 调到 RR 然后认为问题解决了。<em>实验 1 的矩阵已经告诉你它对写偏斜毫无作用。</em></p>
+  </div>
+</section>
+
+<section id="s8">
+  <h2>4.8 这一切到了分布式会怎样</h2>
+  <p>单机事务的每一个部件，在分布式里都会遇到一个对应的、更难的问题。这张表是 Part 4-B / 4-C 的地图：</p>
+
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:22%">单机</th><th style="width:34%">分布式对应物</th><th>新增的难点</th></tr></thead>
+    <tbody>
+      <tr><td><strong>原子提交</strong><br>（一个引擎说了算）</td><td><strong>2PC / TCC / Saga</strong><br><span style="color:var(--ink-3)">Part 4-B</span></td>
+        <td>没有一个「说了算」的人。协调者宕机 ⇒ 参与者永远等下去（3-A 演示过的阻塞）。<br><em>解法：把协调者本身做成一个 Raft 组。</em></td></tr>
+      <tr><td><strong>事务 id 递增</strong><br>（一个计数器）</td><td><strong>全局时间戳 TSO / TrueTime</strong><br><span style="color:var(--ink-3)">Part 4-C</span></td>
+        <td>「谁在前谁在后」变成了 Part 1 的问题。TiDB 用中心化 TSO（单点、但够快），Spanner 用 TrueTime + commit wait（把不确定性<u>等掉</u>）。</td></tr>
+      <tr><td><strong>ReadView</strong><br>（看本地的活跃事务表）</td><td><strong>全局快照 <code>start_ts</code></strong><br><span style="color:var(--ink-3)">Part 4-C</span></td>
+        <td>快照必须<em>跨分片一致</em>。而且如 3-D 所说，还要先等本分片的 Raft 状态机 apply 追上——<strong>两层版本要一起对齐</strong>。</td></tr>
+      <tr><td><strong>行锁</strong><br>（内存里的一张表）</td><td><strong>分布式锁 / Percolator 的 primary lock</strong></td>
+        <td>锁的持有者可能在另一台机器上、可能已经死了。需要租约、fencing token、清理协议。<br><span style="color:var(--ink-3)">Part 6 会专门讲分布式锁为什么比想象中难。</span></td></tr>
+      <tr><td><strong>死锁检测</strong><br>（一张等待图）</td><td><strong>分布式死锁检测 / 超时</strong></td>
+        <td>等待图散在多台机器上，构建它本身就是个分布式问题。<em>大多数系统干脆放弃检测，改用超时。</em></td></tr>
+      <tr><td><strong>写偏斜</strong></td><td><strong>写偏斜，但更容易发生</strong></td>
+        <td>跨分片的读没有天然的一致快照，前提被推翻的窗口更大。<em>这个洞不会因为换成分布式数据库就自动补上。</em></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>一句话的承上启下</div>
+    <p style="margin-bottom:0"><strong>Part 3 解决的是「同一份数据的多个副本保持一致」，Part 4 解决的是「一个事务跨多份不同的数据要么全做要么全不做」。</strong><br>
+    这是两个正交的问题，真实系统需要<u>两个都解决</u>——TiKV 的做法就是：<em>每个分片内部用 Raft 复制（Part 3），跨分片用 Percolator 式 2PC（Part 4）</em>。<br>
+    而 2PC 之所以在那里不再阻塞，正是因为它的协调者状态被 Raft 复制了——<strong>3-A 埋的那个伏笔，在 Part 4-C 兑现。</strong></p>
+  </div>
+</section>
+
+<section id="s9">
+  <h2>4.9 自测题</h2>
+  <p>先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. ACID 里哪个字母是数据库<strong>无法</strong>保证的？为什么？</summary>
+    <div class="a"><p><strong>C（一致性）</strong>。它指的是「你的应用定义的不变量」——账户余额不为负、值班医生至少 1 人、订单总额等于明细之和。</p>
+    <p style="margin-bottom:0"><strong>数据库无法知道你的不变量是什么，因此无法保证它。</strong>它只能保护你<em>显式告诉它</em>的那部分：唯一索引、外键、CHECK 约束。<br>
+    A、I、D 是数据库的承诺，C 是应用的责任。这个字母当初是为了拼出 ACID 才加进去的。</p></div></details>
+
+  <details class="q"><summary>2. MVCC 的版本链存在哪里？（这题有个极常见的错误答案）</summary>
+    <div class="a"><p><strong>undo log</strong>，配合行上的两个隐藏列 <code>DB_TRX_ID</code>（最后修改这行的事务 id）和 <code>DB_ROLL_PTR</code>（指向上一个版本）。</p>
+    <p style="margin-bottom:0">常见错误答案是 <strong>redo log</strong>。redo log 是<em>物理/物理逻辑</em>日志（「第 137 页 offset 92 改成 0x2A」），只用于崩溃恢复的 roll-forward，<u>和可见性判断毫无关系</u>。<br>
+    <em>搞混的代价</em>：会想不通「redo log 都刷盘了，事务怎么还能回滚」——因为回滚靠的是 undo，不是 redo。</p></div></details>
+
+  <details class="q"><summary>3. RC 和 RR 在 InnoDB 里的实现差异是什么？</summary>
+    <div class="a"><p><strong>ReadView 什么时候创建。</strong></p>
+    <p style="margin-bottom:0"><strong>RC</strong>：每条语句都新建一个 ReadView ⇒ 别人刚提交的你下一句就看得见 ⇒ 不可重复读。<br>
+    <strong>RR</strong>：整个事务只在第一次快照读时建一个，之后复用 ⇒ 事务期间世界静止 ⇒ 可重复读。<br>
+    两者共用同一套版本链和同一套可见性判定算法。<em>另外 RC 不加间隙锁，这是它并发更好的原因。</em></p></div></details>
+
+  <details class="q"><summary>4. InnoDB 的 RR 能防幻读吗？靠什么？</summary>
+    <div class="a"><p><strong>能，但靠的是两套独立机制</strong>——只说一套是不完整的：</p>
+    <p><strong>快照读</strong>（普通 <code>SELECT</code>）：整个事务复用同一个 ReadView，新插入的行 <code>DB_TRX_ID</code> 落在 <code>m_ids</code> 里或 <code>&gt;= max_trx_id</code> ⇒ 不可见。</p>
+    <p style="margin-bottom:0"><strong>当前读</strong>（<code>SELECT ... FOR UPDATE</code> / <code>UPDATE</code> / <code>DELETE</code>）：读最新版本，MVCC 帮不上忙 ⇒ 靠 <strong>Next-Key Lock</strong>（记录锁 + 间隙锁）锁住范围，别人插不进来。<br>
+    <em>补充</em>：ANSI 标准的 RR <u>允许</u>幻读——InnoDB 是超额交付，别把「InnoDB 的 RR」和「标准的 RR」当成一回事。</p></div></details>
+
+  <details class="q"><summary>5. 什么是写偏斜？为什么 RR 和快照隔离都挡不住？</summary>
+    <div class="a"><p>两个事务<strong>读同一批数据做决策</strong>，然后<strong>各自写不同的行</strong>。例如两个医生同时检查「在岗人数 &gt;= 2」，都通过，然后各自把自己设为不在岗 ⇒ 0 人在岗。</p>
+    <p style="margin-bottom:0">所有防线都失效的原因是同一个：<strong>它们写的不是同一行。</strong><br>
+    · 行锁不冲突（改的是不同行）<br>
+    · Next-Key Lock 不生效（那两个 SELECT 是快照读，压根没加锁）<br>
+    · SI 的 first-committer-wins 只检测<em>写-写冲突</em>，这里没有<br>
+    <strong>根因</strong>：读到的结果是决策的<em>前提</em>，而数据库看不见你代码里那个 <code>if</code>——它不知道读和写之间有因果关系。</p></div></details>
+
+  <details class="q"><summary>6. 2PL 和 2PC 有什么关系？</summary>
+    <div class="a"><p><strong>没有关系。</strong>唯一的共同点是名字里都有「两阶段」。</p>
+    <p style="margin-bottom:0"><strong>2PL（两阶段锁）</strong>：单机<em>并发控制</em>。两个阶段是「只获取锁」和「只释放锁」，用来实现可串行化。<br>
+    <strong>2PC（两阶段提交）</strong>：跨节点的<em>原子提交</em>协议。两个阶段是 prepare 和 commit，用来保证多个参与者要么全做要么全不做。<br>
+    <em>这是这门课里最容易混的一对术语，面试里也常拿来筛人。</em></p></div></details>
+
+  <details class="q"><summary>7. Oracle 的 SERIALIZABLE 真的可串行化吗？</summary>
+    <div class="a"><p><strong>不是。</strong>Oracle 的 <code>SERIALIZABLE</code> 实际实现的是<strong>快照隔离</strong>，因此<u>写偏斜照样会发生</u>。</p>
+    <p style="margin-bottom:0">这是数据库史上最著名的命名陷阱之一，也是 1995 年 Berenson 那篇批评论文的动机之一。<br>
+    <strong>更一般的教训</strong>：隔离级别的名字不是规格说明，只是一个标签。同一个 <code>REPEATABLE READ</code> 在 MySQL 是「快照读 + 2PL 写」，在 PostgreSQL 是真正的 SI（带 first-committer-wins，会抛序列化错误）。<br>
+    <em>你唯一能依赖的是：这个数据库的这个版本在这种并发模式下实际会发生什么。</em></p></div></details>
+
+  <details class="q"><summary>8. 2PL 和 SSI 各自在什么场景下更好？</summary>
+    <div class="a"><p><strong>它们付的是两种不同的账单。</strong><br>
+    <strong>2PL 的账单是等待</strong>：被挡住的事务停在那里，线程闲置、延迟长尾难看；但<u>已经做过的功不会浪费</u>，等到了就接着做，行为可预测。<br>
+    <strong>SSI 的账单是白做的功</strong>：谁也不等，读事务完全无锁；但验证不通过就<u>整个事务从头再来</u>，而白做的那部分照样烧 CPU。</p>
+    <p><strong>低冲突、事务短 → SSI 更合适</strong>（中止率接近 0，延迟分布好看得多）。<br>
+    <strong>高冲突、事务长 → 2PL 更稳</strong>（SSI 的白做比例会涨到有效功的几倍，而且中止是随机打击，尾延迟同样会炸）。<br>
+    <em>注意墙上时间未必差很多——差的是 CPU。而那些 CPU 要从这台机器上别的事情里扣。</em></p>
+    <p style="margin-bottom:0"><strong>还有一个常被忽略的前提</strong>：SSI 要求应用层有<u>正确的重试逻辑</u>。重试逻辑写错（比如重试时复用了上次读到的值）比不用 SSI 还危险。<br>
+    <em>实验 4 里把热点集中度从 0 拉到 100%，看 SSI 那根「白做的操作」柱子怎么涨——那才是它真正的账单。</em></p></div></details>
+
+  <details class="q"><summary>9. 「抢唯一用户名」这类写偏斜，最好的解法是什么？</summary>
+    <div class="a"><p><strong>唯一索引。</strong>不是隔离级别，不是锁，是约束。</p>
+    <p style="margin-bottom:0">原因回到第 1 题：<strong>数据库只能保护它「知道」的不变量。</strong>唯一索引把「用户名不能重复」这个业务规则<em>告诉</em>了数据库，于是它能在任何隔离级别下可靠地保护它。<br>
+    而如果你写成「先 SELECT 查一下有没有，没有就 INSERT」，那就是一个标准的写偏斜插入变体——<u>连要加锁的那一行都还不存在</u>，任何隔离级别都救不了你。<br>
+    <em>通用原则：能变成约束的不变量，一律变成约束。</em></p></div></details>
+
+  <details class="q"><summary>10. 【综合】库存扣减接口在大促时偶尔超卖。用这一章的知识列出可能的原因和修法。</summary>
+    <div class="a">
+    <p><strong>先定位是哪一类：</strong></p>
+    <ol>
+      <li><strong>丢失更新</strong>——代码写成了「读-改-写」：<code>SELECT stock</code> → 应用里算 <code>stock-1</code> → <code>UPDATE SET stock = 99</code>。两个请求都读到 100，都写 99 ⇒ 卖了两件只扣了一件。<br>
+      <em>修法</em>：改成原子的当前读写 <code>UPDATE ... SET stock = stock - 1 WHERE id = ? AND stock &gt;= 1</code>，然后<strong>检查影响行数</strong>。这一条改完通常就好了。</li>
+      <li><strong>写偏斜</strong>——代码是「先查够不够，够就插一条订单」。查和插作用在不同的表上，锁不会撞。<br>
+      <em>修法</em>：<code>SELECT ... FOR UPDATE</code> 锁住库存行，把读物化成锁；或者给库存加 <code>CHECK (stock &gt;= 0)</code> 让数据库兜底。</li>
+      <li><strong>隔离级别被调成了 RC</strong>——为了并发把 MySQL 调成 RC 是常见操作，但 RC 不加间隙锁，范围条件的保护更弱。</li>
+      <li><strong>根本没在一个事务里</strong>——扣库存和建订单分成了两个事务，或者跨了两个服务。<em>这已经是 Part 4-B 的问题了。</em></li>
+    </ol>
+    <p style="margin-bottom:0"><strong>排查顺序</strong>：先看 SQL 是不是「读-改-写」（最常见，也最好改），再看有没有跨表/跨服务的决策依赖，最后才怀疑隔离级别。<br>
+    <em>反过来说：如果有人一上来就说「把隔离级别调高就行了」，那大概率没找到真正的原因——实验 1 的矩阵告诉你 RR 对写偏斜毫无作用。</em></p></div></details>
+</section>
+
+<section id="s10">
+  <h2>Lab 4-A · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/go/lab04a/</code>。这个 Lab 会让你<strong>亲手写一个迷你事务引擎</strong>——MVCC 版本链、ReadView、行锁、间隙锁、串行执行都在里面，加起来不到 400 行。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>4A-1</strong><br>异常 × 隔离级别矩阵</td><td>七种并发异常 × 五种隔离配置，<strong>每一格都真的跑一遍</strong>，生成课件里那张矩阵。你会看到 RR 那一列在写偏斜上是红的。</td></tr>
+      <tr><td><strong>4A-2</strong><br>ReadView 可见性</td><td>实现四步可见性判定，然后<strong>只改一行</strong>（ReadView 何时创建）把 RR 变成 RC，看同一段时序下读到的值怎么变。</td></tr>
+      <tr><td><strong>4A-3</strong><br>写偏斜</td><td>医院值班表跑 500 次并发：RR 下<strong>破坏不变量 N 次</strong>，加 <code>FOR UPDATE</code> 后 <strong>0 次</strong>，串行化 <strong>0 次</strong>。再看代价——加锁后有多少事务被阻塞。</td></tr>
+      <tr><td><strong>4A-4</strong><br>2PL vs SSI</td><td>把热点集中度从 0 扫到 100%，对比两张账单：<strong>2PL 的中止次数几乎不涨、白做的功接近 0，而 SSI 的白做比例一路涨到有效功的几倍</strong>。墙上时间却相差不大——这才是这个对比的重点。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab04a &amp;&amp; go run .
+
+<span class="cm"># Java</span>
+cd ~/Code/distributed-systems-course/java/lab04a &amp;&amp; java Lab04A.java
+
+<span class="cm"># 常用参数</span>
+go run . -trials 500      <span class="cm"># 4A-3 的并发试验次数</span>
+go run . -doctors 3       <span class="cm"># 4A-3 在岗医生数</span>
+go run . -txns 8          <span class="cm"># 4A-4 并发事务数</span>
+go run . -ops 4           <span class="cm"># 4A-4 每事务操作数</span>
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完后回答</div>
+    <p style="margin-bottom:0">1) 4A-1 里，RC 和 RR 那两列有哪些格子不一样？把差异列出来，再用「ReadView 何时创建」这一条解释全部差异。<br>
+    2) 4A-3 里把在岗医生数从 2 调到 5，同时请假的人数也调到 5，违规次数怎么变？<em>想清楚为什么不是单调的。</em><br>
+    3) 4A-4 里，把热点集中度从 0 拉到 100%，两者的<strong>墙上时间</strong>和<strong>白做的功</strong>各自涨了多少倍？<em>哪一个指标才是选型时真正该看的？</em><br>
+    4) 【最重要的一题】看着 4A-1 的矩阵，回答：<strong>把 MySQL 从 RC 调成 RR，你实际买到了什么，没买到什么？</strong></p>
+  </div>
+
+  <h3>下一站</h3>
+  <p><strong>Part 4-B · 分布式事务的提交协议。</strong>2PC 与 XA、它的阻塞问题（3-A 已经演示过了）、TCC、Saga、本地消息表、RocketMQ 的事务消息——以及一个贯穿始终的问题：<em>当「提交」这个动作本身要跨机器时，那个「第三态」（Part 0）又回来了</em>。<br>
+  然后是 <strong>Part 4-C</strong>：Percolator（TiDB 的事务模型）、Calvin、Spanner 的外部一致性，以及 2PC + Raft 的组合为什么能消掉阻塞。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+function wrapT(root){(root||document).querySelectorAll("table").forEach(t=>{
+  const pa=t.parentElement; if(pa&&pa.classList.contains("grid-wrap"))return;
+  const d=document.createElement("div"); d.className="grid-wrap";
+  pa.insertBefore(d,t); d.appendChild(t);});}
+function rng(seed){let s=(seed>>>0)||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};}
+
+/* ══════════════════════════════════════════════════════════════════
+   迷你事务引擎
+   —— MVCC 版本链 + ReadView + 行锁 + 范围锁 + 串行执行
+   下面那张矩阵的每一格都是这个引擎真的跑出来的，不是抄的表。
+   ══════════════════════════════════════════════════════════════════ */
+const LEVELS=["RU","RC","RR","RRLOCK","SER"];
+const LVNAME={RU:"READ<br>UNCOMMITTED",RC:"READ<br>COMMITTED",RR:"REPEATABLE<br>READ",
+  RRLOCK:"RR +<br>FOR UPDATE",SER:"SERIA-<br>LIZABLE"};
+
+class Engine{
+  constructor(level,init){
+    this.level=level;
+    this.rows={};                 // key -> [{trx,val}] 新 → 旧
+    for(const k in init) this.rows[k]=[{trx:0,val:init[k]}];
+    this.committed=new Set([0]);  // 已提交的事务 id
+    this.active=new Set();        // 仍活跃的事务 id
+    this.xlock={};                // key -> 持锁的事务 id（持有到提交）
+    this.rlock=[];                // {trx, tag} 范围锁（共享）
+    this.tx={};                   // 逻辑编号 t -> 事务对象
+    this.nextId=101;
+    this.trace=[];                // 给可视化用的时序记录
+    this.deadlock=false;
+    this.blkSeen=new Set();
+  }
+  // ── ReadView：四个字段 ──────────────────────────────────────────
+  mkRV(x){
+    const mids=[...this.active].filter(i=>i!==x.id).sort((a,b)=>a-b);
+    return {mids, min: mids.length?mids[0]:this.nextId, max:this.nextId, creator:x.id};
+  }
+  // 四步可见性判定 —— 和 InnoDB 一模一样
+  visible(trx,rv){
+    if(trx===rv.creator) return true;
+    if(trx<rv.min) return true;
+    if(trx>=rv.max) return false;
+    if(rv.mids.includes(trx)) return false;
+    return true;
+  }
+  // 快照读：沿版本链从新到旧，第一个可见的就是答案
+  snapRead(key,rv){
+    const ch=this.rows[key]||[];
+    for(const v of ch) if(this.visible(v.trx,rv)) return v.val;
+    return undefined;
+  }
+  // 当前读：最新的【已提交】版本
+  curRead(key){
+    const ch=this.rows[key]||[];
+    for(const v of ch) if(this.committed.has(v.trx)) return v.val;
+    return undefined;
+  }
+  // 脏读：最新版本，不管提交没提交
+  dirtyRead(key){
+    const ch=this.rows[key]||[];
+    return ch.length?ch[0].val:undefined;
+  }
+  readFor(x,key,lockable){
+    if(this.level==="RU") return this.dirtyRead(key);
+    if(lockable&&(this.level==="RRLOCK"||this.level==="SER")) return this.curRead(key);
+    if(this.level==="RC") return this.snapRead(key,this.mkRV(x));   // 每条语句新建 ReadView
+    if(!x.rv) x.rv=this.mkRV(x);                                     // RR：只建一次，之后复用
+    return this.snapRead(key,x.rv);
+  }
+  matching(x,pred,lockable){
+    const out=[];
+    for(const k in this.rows){
+      const v=this.readFor(x,k,lockable);
+      if(v!==undefined&&pred.test(k,v)) out.push(k);
+    }
+    return out;
+  }
+  // ── 锁 ─────────────────────────────────────────────────────────
+  lockBusy(key,id){ const o=this.xlock[key]; return o!==undefined&&o!==id&&this.active.has(o); }
+  rangeBusy(tag,id){ return this.rlock.some(r=>r.tag===tag&&r.trx!==id&&this.active.has(r.trx)); }
+  // ── 执行一步；返回 "ok" | "blocked" ────────────────────────────
+  step(s){
+    let x=this.tx[s.t];
+    if(s.op==="begin"){
+      x={t:s.t,id:this.nextId++,rv:null,last:undefined,reads:[],done:false};
+      this.tx[s.t]=x; this.active.add(x.id);
+      this.trace.push({t:s.t,txt:"BEGIN",kind:"c"}); return "ok";
+    }
+    if(!x) return "ok";
+    switch(s.op){
+      case "read":{
+        if(s.lockable&&(this.level==="RRLOCK"||this.level==="SER")){
+          if(this.lockBusy(s.key,x.id)) return "blocked";
+          this.xlock[s.key]=x.id;
+        }
+        const v=this.readFor(x,s.key,s.lockable); x.last=v; x.reads.push(v);
+        this.trace.push({t:s.t,kind:"r",
+          txt:(s.lockable&&(this.level==="RRLOCK"||this.level==="SER")?"SELECT "+s.key+" FOR UPDATE":"SELECT "+s.key)+" → "+v});
+        return "ok";
+      }
+      case "scan":{
+        const keys=this.matching(x,s.pred,s.lockable);
+        if(s.lockable&&(this.level==="RRLOCK"||this.level==="SER")){
+          for(const k of keys) if(this.lockBusy(k,x.id)) return "blocked";
+          if(this.rangeBusy(s.pred.tag,x.id)&&s.exclusiveRange) return "blocked";
+          for(const k of keys) this.xlock[k]=x.id;
+          this.rlock.push({trx:x.id,tag:s.pred.tag});
+        }
+        x.last=keys.length; x.reads.push(keys.length);
+        this.trace.push({t:s.t,kind:"r",
+          txt:"SELECT count(*) WHERE "+s.pred.label+(s.lockable&&(this.level==="RRLOCK"||this.level==="SER")?" FOR UPDATE":"")+" → "+keys.length});
+        return "ok";
+      }
+      case "write":{
+        if(s.guardMin!==undefined&&!(x.last>=s.guardMin)){
+          this.trace.push({t:s.t,kind:"c",txt:"if (上次读到 "+x.last+" >= "+s.guardMin+") 不成立 → 放弃写入"});
+          return "ok";
+        }
+        if(this.level!=="RU"&&this.lockBusy(s.key,x.id)) return "blocked";
+        this.xlock[s.key]=x.id;
+        const val=s.delta!==undefined?(x.last+s.delta):s.val;
+        (this.rows[s.key]=this.rows[s.key]||[]).unshift({trx:x.id,val});
+        this.trace.push({t:s.t,kind:"w",txt:"UPDATE "+s.key+" = "+val});
+        return "ok";
+      }
+      case "insert":{
+        if(s.guardMax!==undefined&&!(x.last<=s.guardMax)){
+          this.trace.push({t:s.t,kind:"c",txt:"if (上次读到 "+x.last+" <= "+s.guardMax+") 不成立 → 放弃插入"});
+          return "ok";
+        }
+        if((this.level==="RRLOCK"||this.level==="SER")&&s.tag&&this.rangeBusy(s.tag,x.id)) return "blocked";
+        this.xlock[s.key]=x.id;
+        (this.rows[s.key]=this.rows[s.key]||[]).unshift({trx:x.id,val:s.val});
+        this.trace.push({t:s.t,kind:"w",txt:"INSERT "+s.key+" = "+s.val});
+        return "ok";
+      }
+      case "commit":
+        this.committed.add(x.id); this.active.delete(x.id); x.done=true;
+        this.trace.push({t:s.t,kind:"c",txt:"COMMIT"}); return "ok";
+      case "abort":
+        this.active.delete(x.id); x.done=true;
+        for(const k in this.rows) this.rows[k]=this.rows[k].filter(v=>v.trx!==x.id);
+        this.trace.push({t:s.t,kind:"c",txt:"ROLLBACK"}); return "ok";
+    }
+    return "ok";
+  }
+  // 按给定时序执行；某一步被锁挡住就让它排队，等持锁方提交后再放行。
+  // 所有事务都卡住 = 死锁 ⇒ 中止最后一个（真实引擎也是这么干的）
+  run(steps){
+    const q=[...steps]; const waiting={}; let guard=0;
+    while(q.length&&guard++<4000){
+      let moved=false;
+      for(let i=0;i<q.length;i++){
+        const s=q[i];
+        if(waiting[s.t]) continue;
+        const r=this.step(s);
+        if(r==="ok"){ q.splice(i,1); moved=true; break; }
+        waiting[s.t]=true;
+        if(!this.blkSeen.has(s)){this.blkSeen.add(s);
+          this.trace.push({t:s.t,kind:"blk",txt:"（被锁阻塞，等待前一个事务提交）"});}
+      }
+      if(!moved){
+        const stuck=Object.keys(waiting).filter(t=>waiting[t]);
+        if(stuck.length===0) break;
+        // 有人在等，但没人能推进 ⇒ 死锁。中止其中一个，放掉它的锁。
+        this.deadlock=true;
+        const victim=stuck[stuck.length-1];
+        const x=this.tx[victim];
+        if(x){ this.active.delete(x.id);
+          for(const k in this.rows) this.rows[k]=this.rows[k].filter(v=>v.trx!==x.id);
+          this.rlock=this.rlock.filter(r=>r.trx!==x.id);
+          this.trace.push({t:+victim,kind:"blk",txt:"⚡ 死锁，本事务被选为牺牲者并回滚"});
+        }
+        for(let i=q.length-1;i>=0;i--) if(q[i].t==+victim) q.splice(i,1);
+        for(const t in waiting) waiting[t]=false;
+        continue;
+      }
+      for(const t in waiting) waiting[t]=false;   // 有人推进了，重新唤醒所有等待者
+    }
+    return this.trace;
+  }
+  finalVal(key){ return this.curRead(key); }
+  countWhere(pred){ let n=0; for(const k in this.rows){const v=this.curRead(k); if(v!==undefined&&pred.test(k,v))n++;} return n; }
+}
+// 串行化：把同一个事务的步骤聚到一起，一个跑完再跑下一个
+function serialize(steps){
+  const order=[],buckets={};
+  for(const s of steps){ if(!buckets[s.t]){buckets[s.t]=[];order.push(s.t);} buckets[s.t].push(s); }
+  return order.flatMap(t=>buckets[t]);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 1 · 七种异常 × 五种隔离配置
+   ══════════════════════════════════════════════════════════════════ */
+const P_ONCALL={tag:"oncall",label:"on_call = true",test:(k,v)=>k.indexOf("doc:")===0&&v===1};
+const P_ADULT ={tag:"adult", label:"age > 18",      test:(k,v)=>k.indexOf("p:")===0&&v>18};
+const P_ROOM  ={tag:"roomA", label:"room='A' AND slot=10",test:(k,v)=>k.indexOf("bk:")===0&&v===1};
+
+const SCEN=[
+{id:"dw",name:"脏写",en:"dirty write",ansi:true,
+ init:{x:0,y:0},
+ steps:[{t:1,op:"begin"},{t:2,op:"begin"},
+  {t:1,op:"write",key:"x",val:1},{t:2,op:"write",key:"x",val:2},
+  {t:2,op:"write",key:"y",val:2},{t:1,op:"write",key:"y",val:1},
+  {t:1,op:"commit"},{t:2,op:"commit"}],
+ check:e=>({bad:e.finalVal("x")!==e.finalVal("y"),
+   detail:"最终 x="+e.finalVal("x")+"，y="+e.finalVal("y")}),
+ why:"两个事务各自要把 x 和 y 都改成自己的值。如果没有行级排他锁，两个写会交错，"+
+   "最后得到一个 <strong>x 来自 T2、y 来自 T1</strong> 的混合状态——<em>这个状态两个事务都没打算造出来</em>。<br>"+
+   "现实版本：卖车的挂牌信息记给了甲，发票却开给了乙。<br>"+
+   "<strong>好消息是这一行全绿（RU 除外）</strong>：几乎所有数据库都用「写锁持有到提交」挡住脏写，这是唯一白送的那个。"},
+
+{id:"dr",name:"脏读",en:"dirty read",ansi:true,
+ init:{x:1},
+ steps:[{t:1,op:"begin"},{t:2,op:"begin"},
+  {t:1,op:"write",key:"x",val:2},{t:2,op:"read",key:"x"},
+  {t:1,op:"abort"},{t:2,op:"commit"}],
+ check:e=>({bad:e.tx[2]&&e.tx[2].last===2,
+   detail:"T2 读到 x="+(e.tx[2]?e.tx[2].last:"?")+"，而 T1 最终回滚了"}),
+ why:"T2 读到了 T1 <strong>尚未提交</strong>的 x=2，然后 T1 回滚。<br>"+
+   "于是 T2 基于一个<u>从未存在过的世界</u>做了决策——这个值在数据库的历史上从来没有真正生效过。<br>"+
+   "RC 及以上靠 MVCC 挡住：T1 的版本在 T2 的 ReadView 里落在 <code>m_ids</code> 中，不可见。"},
+
+{id:"nr",name:"不可重复读",en:"non-repeatable read",ansi:true,
+ init:{x:1},
+ steps:[{t:1,op:"begin"},{t:1,op:"read",key:"x"},
+  {t:2,op:"begin"},{t:2,op:"write",key:"x",val:2},{t:2,op:"commit"},
+  {t:1,op:"read",key:"x"},{t:1,op:"commit"}],
+ check:e=>{const r=e.tx[1]?e.tx[1].reads:[];return{bad:r.length>1&&r[0]!==r[1],
+   detail:"T1 两次读到 "+r.join(" 和 ")}},
+ why:"同一个事务里读两次同一行，值变了。<br>"+
+   "<strong>RC 之所以挡不住，是因为它每条语句都新建一个 ReadView</strong> —— 第二次读用的是新快照，自然看得见 T2 的提交。<br>"+
+   "RR 整个事务只建一次 ReadView 并复用 ⇒ 世界静止。<em>两个级别的实现差异就这一行。</em><br>"+
+   "更危险的形式叫<strong>读偏斜</strong>：分两次读 A、B 两个账户，中间有人转账，于是你算出的总额凭空少了一笔。"},
+
+{id:"ph",name:"幻读",en:"phantom read",ansi:true,
+ init:{"p:1":20,"p:2":30,"p:3":10},
+ steps:[{t:1,op:"begin"},{t:1,op:"scan",pred:P_ADULT,lockable:true,exclusiveRange:true},
+  {t:2,op:"begin"},{t:2,op:"insert",key:"p:4",val:25,tag:"adult"},{t:2,op:"commit"},
+  {t:1,op:"scan",pred:P_ADULT,lockable:true,exclusiveRange:true},{t:1,op:"commit"}],
+ check:e=>{const r=e.tx[1]?e.tx[1].reads:[];return{bad:r.length>1&&r[0]!==r[1],
+   detail:"T1 两次范围查询的行数："+r.join(" 和 ")}},
+ why:"同一个范围查询两次，<strong>行数变了</strong>。和不可重复读的区别：那个是「同一行的值变了」，这个是「凭空多了一行」。<br>"+
+   "<strong>InnoDB 的 RR 靠两套机制挡住它</strong>：<br>"+
+   "· <u>快照读</u>——新插入行的 <code>DB_TRX_ID</code> 落在 <code>m_ids</code> 里或 <code>&gt;= max_trx_id</code>，不可见；<br>"+
+   "· <u>当前读</u>（<code>FOR UPDATE</code>）——MVCC 帮不上忙，改用 <strong>Next-Key Lock</strong> 锁住整个区间，别人插不进来。<br>"+
+   "<em>注意：ANSI 标准的 RR 是允许幻读的，InnoDB 属于超额交付。</em>"},
+
+{id:"lu",name:"丢失更新",en:"lost update",ansi:false,
+ init:{x:100},
+ steps:[{t:1,op:"begin"},{t:2,op:"begin"},
+  {t:1,op:"read",key:"x",lockable:true},{t:2,op:"read",key:"x",lockable:true},
+  {t:1,op:"write",key:"x",delta:10},{t:2,op:"write",key:"x",delta:10},
+  {t:1,op:"commit"},{t:2,op:"commit"}],
+ check:e=>({bad:e.finalVal("x")!==120,
+   detail:"两次各加 10，期望 120，实际 "+e.finalVal("x")}),
+ why:"标准的<strong>读-改-写</strong>循环：两个事务都读到 100，在应用里各自算出 110，都写回去 ⇒ <u>只加了一次</u>。<br>"+
+   "<strong>RR 这一格是红的</strong>——这就是为什么「我们用 RR 所以并发安全」是错的。RR 保证的是「我读到的不变」，"+
+   "而这里的问题恰恰是<em>你读到的确实没变，但它已经过时了</em>。<br>"+
+   "两种修法：① <code>SELECT ... FOR UPDATE</code>（这一列）；"+
+   "② 把整个读-改-写写成一条原子 SQL <code>UPDATE x = x + 10</code>——那是当前读，天然带锁。<br>"+
+   "<em>也就是说：能不能防住，取决于你怎么写 SQL，而不取决于隔离级别。</em>"},
+
+{id:"ws",name:"写偏斜",en:"write skew",ansi:false,
+ init:{"doc:alice":1,"doc:bob":1},
+ steps:[{t:1,op:"begin"},{t:2,op:"begin"},
+  {t:1,op:"scan",pred:P_ONCALL,lockable:true},{t:2,op:"scan",pred:P_ONCALL,lockable:true},
+  {t:1,op:"write",key:"doc:alice",val:0,guardMin:2},
+  {t:2,op:"write",key:"doc:bob",val:0,guardMin:2},
+  {t:1,op:"commit"},{t:2,op:"commit"}],
+ check:e=>({bad:e.countWhere(P_ONCALL)<1,
+   detail:"最终在岗医生数 "+e.countWhere(P_ONCALL)+"（不变量要求 >= 1）"}),
+ why:"<strong>这一章的主角。</strong>两个医生同时检查「在岗 &gt;= 2，我可以走」，都通过，然后各自把<u>自己那一行</u>改成不在岗。<br>"+
+   "所有防线都失效，原因是同一个：<strong>它们写的不是同一行。</strong><br>"+
+   "· 行锁不冲突 · 那两个 <code>SELECT</code> 是快照读、压根没加锁 · 快照隔离的 first-committer-wins 只检测<em>写-写</em>冲突<br>"+
+   "<strong style='color:var(--crit)'>Oracle 的 SERIALIZABLE 也挡不住</strong>（它实际是快照隔离）。<br>"+
+   "根因：<em>读到的结果是你决策的前提，而数据库看不见你代码里那个 <code>if</code></em>。<br>"+
+   "看 RR+FOR UPDATE 那一格：T2 的 SELECT 被阻塞，等 T1 提交后重新读到 1，它自己的检查就不通过了——<strong>把读物化成锁</strong>。"},
+
+{id:"pws",name:"写偏斜（插入型）",en:"phantom write skew",ansi:false,
+ init:{"bk:0":0},
+ steps:[{t:1,op:"begin"},{t:2,op:"begin"},
+  {t:1,op:"scan",pred:P_ROOM,lockable:true,exclusiveRange:true},
+  {t:2,op:"scan",pred:P_ROOM,lockable:true,exclusiveRange:true},
+  {t:1,op:"insert",key:"bk:1",val:1,guardMax:0,tag:"roomA"},
+  {t:2,op:"insert",key:"bk:2",val:1,guardMax:0,tag:"roomA"},
+  {t:1,op:"commit"},{t:2,op:"commit"}],
+ check:e=>({bad:e.countWhere(P_ROOM)>1,
+   detail:"最终这个时段的预订数 "+e.countWhere(P_ROOM)+"（不变量要求 <= 1）"}),
+ why:"两个人同时查「A 会议室 10 点有人订吗」，都查到没有，都插入了预订。<br>"+
+   "<strong>比普通写偏斜更难防：连要加锁的那一行都还不存在。</strong>行锁锁不住不存在的行。<br>"+
+   "RR+FOR UPDATE 这一格能挡住，靠的是 <strong>Next-Key Lock 里的间隙锁部分</strong>——它锁的正是「空隙」。<br>"+
+   "工程上还有两个更稳的办法：<br>"+
+   "· <strong>唯一索引</strong>（把「同一时段只能有一条预订」告诉数据库，它就能可靠保护）<br>"+
+   "· <strong>物化冲突</strong>：预先建好「会议室 × 时间段」的占位行，把不存在的冲突变成一行真实的行，然后锁它。"}
+];
+
+function runOne(sc,level){
+  const e=new Engine(level,JSON.parse(JSON.stringify(sc.init)));
+  e.run(level==="SER"?serialize(sc.steps):sc.steps);
+  const v=sc.check(e);
+  return {bad:v.bad,detail:v.detail,trace:e.trace,deadlock:e.deadlock};
+}
+let MXSEL={s:0,l:"RR"};
+function drawMx(){
+  let h='<table class="mx"><thead><tr><th class="rh"></th>';
+  for(const L of LEVELS) h+='<th>'+LVNAME[L]+'</th>';
+  h+='</tr></thead><tbody>';
+  SCEN.forEach((sc,si)=>{
+    h+='<tr><th class="rh"><div style="font-weight:660;color:var(--ink);font-size:13.5px">'+sc.name+
+       (sc.ansi?'':' <span class="tag" style="border-color:var(--crit);color:var(--crit)">不在 ANSI 清单</span>')+
+       '</div><div style="font-size:11px;color:var(--ink-3);font-family:var(--mono)">'+sc.en+'</div></th>';
+    for(const L of LEVELS){
+      const r=runOne(sc,L);
+      const cls=r.bad?"bad":"good";
+      const sel=(MXSEL.s===si&&MXSEL.l===L)?" sel":"";
+      h+='<td><button class="cellbtn '+cls+sel+'" data-s="'+si+'" data-l="'+L+'">'+
+         (r.bad?"异常发生":"挡住")+(r.deadlock?'<br><span style="font-size:10px">（死锁中止）</span>':'')+'</button></td>';
+    }
+    h+='</tr>';
+  });
+  h+='</tbody></table>';
+  $("#mx1").innerHTML=h;
+  $$("#mx1 .cellbtn").forEach(b=>b.onclick=()=>{MXSEL={s:+b.dataset.s,l:b.dataset.l};drawMx();});
+  drawTrace();
+}
+function drawTrace(){
+  const sc=SCEN[MXSEL.s],L=MXSEL.l,r=runOne(sc,L);
+  let h='<div class="note '+(r.bad?"crit":"ok")+'" style="margin:0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--'+(r.bad?"crit":"ok")+')"></span>'+
+    sc.name+' × '+LVNAME[L].replace("<br>"," ")+' → '+(r.bad?"异常发生":"被挡住")+'</div>';
+  h+='<div class="grid-wrap"><table class="sched" style="margin:10px 0 0"><thead><tr>'+
+     '<th style="width:46%" class="t1">T1</th><th style="width:46%" class="t2">T2</th></tr></thead><tbody>';
+  for(const e of r.trace){
+    const cell='<span class="opbox '+(e.kind==="blk"?"blk":e.kind)+'">'+e.txt+'</span>';
+    h+='<tr><td>'+(e.t===1?cell:"")+'</td><td>'+(e.t===2?cell:"")+'</td></tr>';
+  }
+  h+='</tbody></table></div>';
+  h+='<p style="margin:12px 0 0"><strong>结果：</strong>'+r.detail+'　'+
+     (r.bad?'<strong style="color:var(--crit)">⇒ 不变量被破坏</strong>':'<strong style="color:var(--ok)">⇒ 正确</strong>')+'</p>';
+  h+='<p style="margin:10px 0 0">'+sc.why+'</p></div>';
+  $("#o1").innerHTML=h;
+  wrapT($("#o1"));
+}
+drawMx();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 2 · ReadView 可见性判定器
+   ══════════════════════════════════════════════════════════════════ */
+const CHAIN=[{trx:32,val:500},{trx:28,val:400},{trx:24,val:300},{trx:18,val:200},{trx:12,val:100}];
+const CAND=[18,24,28,32];
+let MIDS=new Set([28,32]);
+function drawRV(){
+  const creator=+$("#i2c").value;
+  $("#l2c").textContent=creator;
+  $("#mids").innerHTML=CAND.map(id=>'<button data-id="'+id+'" class="'+(MIDS.has(id)?"act":"")+'" '+
+    'style="padding:4px 10px;font-family:var(--mono);font-size:12px'+
+    (MIDS.has(id)?';background:var(--s2);border-color:var(--s2);color:#fff':'')+'">trx '+id+'</button>').join("");
+  $$("#mids button").forEach(b=>b.onclick=()=>{const i=+b.dataset.id;MIDS.has(i)?MIDS.delete(i):MIDS.add(i);drawRV();});
+  const mids=[...MIDS].filter(i=>i!==creator).sort((a,b)=>a-b);
+  const nextId=40;
+  const rv={mids,min:mids.length?mids[0]:nextId,max:nextId,creator};
+  $("#rv2").innerHTML=
+    '<div class="rvf"><div class="k">m_ids</div><div class="v">['+mids.join(", ")+']</div></div>'+
+    '<div class="rvf"><div class="k">min_trx_id</div><div class="v">'+rv.min+'</div></div>'+
+    '<div class="rvf"><div class="k">max_trx_id</div><div class="v">'+rv.max+'</div></div>'+
+    '<div class="rvf"><div class="k">creator_trx_id</div><div class="v">'+rv.creator+'</div></div>';
+  let vis=false,chosen=null,rows="";
+  let h="";
+  CHAIN.forEach((v,i)=>{
+    let ok,reason;
+    if(v.trx===rv.creator){ok=true;reason="trx == creator_trx_id ⇒ 我自己改的";}
+    else if(v.trx<rv.min){ok=true;reason="trx < min_trx_id ("+rv.min+") ⇒ 建 ReadView 前就已提交";}
+    else if(v.trx>=rv.max){ok=false;reason="trx >= max_trx_id ("+rv.max+") ⇒ 在我之后才开始";}
+    else if(rv.mids.indexOf(v.trx)>=0){ok=false;reason="trx 在 m_ids 里 ⇒ 我建 ReadView 时它还没提交";}
+    else {ok=true;reason="不在 m_ids 且 < max ⇒ 已提交";}
+    const picked=ok&&!vis;
+    if(picked){vis=true;chosen=v;}
+    h+=(i?'<span class="arr">→</span>':"")+
+      '<div class="ver '+(picked?"vis":ok?"":"hid")+'"><div style="font-size:11px;color:var(--ink-3)">trx '+v.trx+'</div>'+
+      '<div style="font-size:14px;font-weight:660;color:var(--ink)">'+v.val+'</div></div>';
+    rows+='<tr'+(picked?' style="background:var(--surface-2)"':'')+'><td><code>trx '+v.trx+'</code></td>'+
+      '<td>'+v.val+'</td><td style="color:var(--'+(ok?"ok":"ink-3")+')">'+(ok?"可见":"不可见")+'</td>'+
+      '<td style="font-size:12.5px">'+reason+(picked?' <strong style="color:var(--ok)">← 第一个可见的，就是答案</strong>':"")+'</td></tr>';
+  });
+  $("#vc2").innerHTML=h;
+  $("#why2").innerHTML='<div class="grid-wrap"><table style="margin:0"><thead><tr><th style="width:14%">版本</th>'+
+    '<th style="width:12%">值</th><th style="width:14%">判定</th><th>依据</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  $("#o2").innerHTML='<div class="note '+(chosen?"ok":"warn")+'" style="margin:0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--'+(chosen?"ok":"warn")+')"></span>这次快照读返回 '+
+    (chosen?'<strong>balance = '+chosen.val+'</strong>':'（版本链上没有可见版本）')+'</div>'+
+    '<p style="margin-bottom:0">把 <code>trx 28</code> 从活跃集合里去掉（相当于它提交了），再看返回值怎么跳——'+
+    '<strong>这一跳就是 RC 和 RR 的全部差别</strong>：<br>'+
+    'RC 每条语句都重新采集一次活跃集合，所以别人刚提交的立刻就看见了；'+
+    'RR 整个事务复用第一次采集的那一份，所以看不见。<em>版本链和判定算法两者完全一样。</em></p></div>';
+}
+$("#i2c").oninput=drawRV; drawRV();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 3 · 医院值班表：谁能挡住写偏斜
+   ══════════════════════════════════════════════════════════════════ */
+function skewSteps(D,C,rnd){
+  // C 个医生同时发起请假：读一遍在岗人数 → 如果 >= 2 就把自己设成不在岗
+  const per=[];
+  for(let t=1;t<=C;t++) per.push([
+    {t,op:"begin"},
+    {t,op:"scan",pred:P_ONCALL,lockable:true},
+    {t,op:"write",key:"doc:"+t,val:0,guardMin:2},
+    {t,op:"commit"}]);
+  // 保持每个事务内部顺序不变，随机交错
+  const idx=per.map(()=>0), out=[];
+  let left=per.reduce((a,p)=>a+p.length,0);
+  while(left>0){
+    const avail=[];
+    for(let i=0;i<C;i++) if(idx[i]<per[i].length) avail.push(i);
+    const pick=avail[Math.floor(rnd()*avail.length)];
+    out.push(per[pick][idx[pick]++]); left--;
+  }
+  return out;
+}
+function run3(){
+  const D=+$("#i3d").value,C=Math.min(+$("#i3c").value,D),N=+$("#i3n").value;
+  $("#l3d").textContent=D; $("#l3c").textContent=$("#i3c").value; $("#l3n").textContent=N;
+  const cfgs=[["RC","READ COMMITTED"],["RR","REPEATABLE READ"],
+              ["RRLOCK","RR + SELECT … FOR UPDATE"],["SER","SERIALIZABLE"]];
+  const res=[];
+  for(const [lv,nm] of cfgs){
+    let bad=0,sumOn=0,blocked=0,gaveUp=0;
+    for(let s=1;s<=N;s++){
+      const rnd=rng(s*2654435761);
+      const init={}; for(let i=1;i<=D;i++) init["doc:"+i]=1;
+      const e=new Engine(lv,init);
+      const st=skewSteps(D,C,rnd);
+      e.run(lv==="SER"?serialize(st):st);
+      const on=e.countWhere(P_ONCALL);
+      sumOn+=on; if(on<1) bad++;
+      if(e.trace.some(x=>x.kind==="blk")) blocked++;
+      gaveUp+=e.trace.filter(x=>x.txt&&x.txt.indexOf("放弃写入")>=0).length;
+    }
+    res.push({lv,nm,bad,avgOn:sumOn/N,blocked,gaveUp});
+  }
+  let h='<div class="grid-wrap"><table style="margin:0"><thead><tr>'+
+    '<th style="width:28%">隔离配置</th><th style="width:18%">不变量被破坏</th>'+
+    '<th style="width:16%">平均最终在岗</th><th style="width:18%">出现过锁等待</th><th>主动放弃请假</th>'+
+    '</tr></thead><tbody>';
+  for(const r of res){
+    h+='<tr><td><code>'+r.nm+'</code></td>'+
+      '<td><strong style="color:'+(r.bad?"var(--crit)":"var(--ok)")+'">'+r.bad+' / '+N+'</strong></td>'+
+      '<td>'+r.avgOn.toFixed(2)+' 人</td>'+
+      '<td>'+r.blocked+' / '+N+'</td><td>'+r.gaveUp+' 次</td></tr>';
+  }
+  h+='</tbody></table></div>';
+  const rc=res[0],rr=res[1],lk=res[2],sr=res[3];
+  h+='<div class="note '+(rr.bad?"crit":"")+'" style="margin:14px 0 0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--'+(rr.bad?"crit":"s1")+')"></span>读这张表</div><p style="margin-bottom:0">';
+  if(rr.bad){
+    h+='<strong>RC 和 RR 的违规次数几乎一样（'+rc.bad+' vs '+rr.bad+'）。</strong>'+
+       '把隔离级别从 RC 调到 RR，对写偏斜<u>没有任何帮助</u>——因为 RR 加强的是「我读到的不变」，'+
+       '而这里的问题是<em>你读到的确实没变，只是它已经过时了</em>。<br>';
+  }else{
+    h+='<span style="color:var(--s4)">这组参数下 RR 恰好没撞出违规</span>——把「同时请假的人数」调大，或者增加试验次数再看。<br>';
+  }
+  h+='加上 <code>FOR UPDATE</code> 后违规降到 <strong style="color:var(--ok)">'+lk.bad+'</strong>，'+
+     '代价是 '+lk.blocked+'/'+N+' 次出现锁等待，以及 '+lk.gaveUp+' 次「有人查到人不够，主动放弃请假」——'+
+     '<strong>后者正是我们想要的行为</strong>：不是数据库报错，而是应用自己发现前提不成立。<br>'+
+     '<em>加锁把「读」这个动作物化成了一件别人看得见的事，于是数据库终于知道你的读和写之间有因果关系。</em>';
+  h+='</p></div>';
+  $("#o3").innerHTML=h;
+}
+["i3d","i3c","i3n"].forEach(id=>$("#"+id).oninput=run3);
+$("#b3run").onclick=run3; run3();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 4 · 2PL vs SSI
+   ══════════════════════════════════════════════════════════════════ */
+let NKEY=40; const HOT=2;
+function mkTxns(C,O,hot,rnd){
+  NKEY=Math.max(24,C*O);   // 键空间随负载伸缩，否则「低冲突」根本低不下来
+  const ts=[];
+  for(let i=0;i<C;i++){
+    const ops=[];
+    for(let j=0;j<O;j++){
+      const k=(rnd()<hot)?Math.floor(rnd()*HOT):Math.floor(rnd()*NKEY);
+      ops.push({key:k,write:rnd()<0.5});
+    }
+    ts.push({id:i,ops});
+  }
+  return ts;
+}
+// 两个模拟器共用同一个物理前提：系统每 tick 最多能执行 PAR 个操作。
+// 这一条很重要——它让「白做的功」真的变成时间，而不是一个漂亮的免费数字。
+const PAR=4;
+const inter=(A,B)=>{for(const k of A) if(B.has(k)) return true; return false;};
+
+// 2PL：悲观。拿不到锁就等（等待期间不占用 CPU）；等待图成环 = 死锁，挑牺牲者中止。
+// 关键性质：等待【不浪费】已经做的功——等到了就接着往下做。
+// 进度保证：编号最小的活跃事务永远不会被选为牺牲者 ⇒ 它一定能跑完，然后轮到下一个。
+function sim2PL(txns){
+  const st=txns.map(t=>({id:t.id,ops:t.ops,p:0,locks:[],done:false,cool:0}));
+  const owner={};
+  let tick=0,aborts=0,wasted=0,work=0;
+  while(st.some(s=>!s.done)&&tick<8000){
+    tick++;
+    const alive=st.filter(s=>!s.done);
+    // 先算出这一 tick 谁【能】动（锁没被占住），再按并行度预算执行
+    const runnable=[], waitFor={};
+    for(const s of alive){
+      if(s.cool>0){ s.cool--; runnable.push(null); continue; }   // 退避中，算作有进展
+      const op=s.ops[s.p], o=owner[op.key];
+      if(o&&o.trx!==s.id&&(o.x||op.write)){ waitFor[s.id]=o.trx; continue; }
+      runnable.push(s);
+    }
+    if(runnable.length===0){
+      // 没有任何事务能动 ⇒ 等待图里必然有环。把环找出来，只在【环里】挑牺牲者——
+      // 中止一个环外的事务不会解开任何东西，那正是「死锁检测」和「随便杀一个」的区别。
+      let cyc=null;
+      for(const k in waitFor){
+        const path=[], seen=new Set(); let cur=+k;
+        while(cur!==undefined&&!seen.has(cur)){ seen.add(cur); path.push(cur); cur=waitFor[cur]; }
+        if(cur!==undefined){ cyc=path.slice(path.indexOf(cur)); break; }
+      }
+      // 编号最小的活跃事务豁免，保证它一定跑得完，然后轮到下一个 ⇒ 一定终止。
+      const protectedId=alive[0].id;
+      let pool=(cyc||[]).map(id=>alive.find(s=>s.id===id)).filter(s=>s&&s.id!==protectedId);
+      if(!pool.length) pool=alive.filter(s=>s.id!==protectedId&&s.locks.length);
+      if(!pool.length) pool=alive.filter(s=>s.id!==protectedId);
+      if(!pool.length) break;
+      pool.sort((x,y)=>x.p-y.p);                 // 环里挑已做的功最少的，浪费最小
+      const v=pool[0];
+      aborts++; wasted+=v.p;
+      for(const k of v.locks) if(owner[k]&&owner[k].trx===v.id) delete owner[k];
+      v.locks=[]; v.p=0; v.cool=2;
+      continue;
+    }
+    let budget=PAR;
+    for(const s of runnable){
+      if(budget<=0) break;
+      if(!s) continue;                            // 退避中的占位
+      const op=s.ops[s.p], o=owner[op.key];
+      if(o&&o.trx!==s.id&&(o.x||op.write)) continue;   // 同一 tick 内被别人抢先拿走了
+      if(!o||o.trx!==s.id){ owner[op.key]={trx:s.id,x:op.write}; s.locks.push(op.key); }
+      else if(op.write) owner[op.key].x=true;
+      s.p++; work++; budget--;
+      if(s.p>=s.ops.length){ s.done=true;
+        for(const k of s.locks) if(owner[k]&&owner[k].trx===s.id) delete owner[k]; s.locks=[]; }
+    }
+  }
+  return {tick,aborts,wasted,work,tput:txns.length/Math.max(tick,1)*100};
+}
+
+// SSI：乐观。谁也不等，全速往前跑；跑完一整个事务才验证
+//   「我读到的前提有没有被别人推翻」——被推翻就整个重做。
+// 验证条件用的是 SSI 的危险结构近似：
+//   ① 写-写冲突（快照隔离本来就要求的 first-committer-wins），或
+//   ② 双向的读-写反依赖（我读了它写的，同时它读了我写的）—— 这才是真正会成环的那种。
+// 关键性质：中止 = 这一轮做的功【全部白费】，而且白费的功照样占 CPU。
+function simSSI(txns){
+  const st=txns.map(t=>({id:t.id,ops:t.ops,p:0,done:false,start:0,
+    rs:new Set(t.ops.filter(o=>!o.write).map(o=>o.key)),
+    ws:new Set(t.ops.filter(o=>o.write).map(o=>o.key))}));
+  const hist=[];                                   // 已提交事务的 {rs, ws}
+  let tick=0,aborts=0,wasted=0,work=0;
+  while(st.some(s=>!s.done)&&tick<8000){
+    tick++;
+    let budget=PAR;
+    for(const s of st){
+      if(s.done||budget<=0) continue;
+      s.p++; work++; budget--;
+      if(s.p<s.ops.length) continue;
+      let conflict=false;
+      for(let i=s.start;i<hist.length&&!conflict;i++){
+        const u=hist[i];
+        if(inter(s.ws,u.ws)) conflict=true;                       // ① 写-写
+        else if(inter(s.rs,u.ws)&&inter(s.ws,u.rs)) conflict=true; // ② 双向 rw 反依赖
+      }
+      if(conflict){ aborts++; wasted+=s.ops.length; s.p=0; s.start=hist.length; }
+      else { s.done=true; hist.push({rs:s.rs,ws:s.ws}); }
+    }
+  }
+  return {tick,aborts,wasted,work,tput:txns.length/Math.max(tick,1)*100};
+}
+function bar(v,max,color){
+  const w=Math.max(2,Math.round(v/Math.max(max,1)*100));
+  return '<div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;margin-top:5px">'+
+    '<div style="height:100%;width:'+w+'%;background:'+color+'"></div></div>';
+}
+function run4(){
+  const hot=+$("#i4h").value/100,C=+$("#i4c").value,O=+$("#i4o").value,seed=+$("#i4s").value;
+  $("#l4h").textContent=+$("#i4h").value; $("#l4c").textContent=C; $("#l4o").textContent=O; $("#l4s").textContent=seed;
+  const txns=mkTxns(C,O,hot,rng(seed*2654435761));
+  const a=sim2PL(txns.map(t=>({id:t.id,ops:t.ops.slice()})));
+  const b=simSSI(txns.map(t=>({id:t.id,ops:t.ops.slice()})));
+  const mx=Math.max(a.tick,b.tick), mw=Math.max(a.wasted,b.wasted), me=Math.max(a.tput,b.tput);
+  const card=(r,c)=>'<div class="stats" style="margin-top:0">'+
+    '<div class="stat"><div class="k">总耗时</div><div class="v">'+r.tick+' <span class="u">ticks</span></div>'+bar(r.tick,mx,c)+'</div>'+
+    '<div class="stat"><div class="k">中止次数</div><div class="v">'+r.aborts+'</div>'+bar(r.aborts,Math.max(a.aborts,b.aborts),c)+'</div>'+
+    '<div class="stat"><div class="k">白做的操作</div><div class="v">'+r.wasted+'</div>'+bar(r.wasted,mw,c)+'</div>'+
+    '<div class="stat"><div class="k">吞吐</div><div class="v">'+r.tput.toFixed(1)+'</div>'+bar(r.tput,me,c)+
+    '<div style="font-size:10.5px;color:var(--ink-3);margin-top:3px">事务数 / 总耗时 ×100</div></div>'+
+    '</div>';
+  $("#d4a").innerHTML=card(a,"var(--s4)");
+  $("#d4b").innerHTML=card(b,"var(--s1)");
+  // 扫一遍热点集中度，画出交叉点
+  const xs=[],ys2=[],ysS=[];
+  for(let hh=0;hh<=100;hh+=5){
+    const tt=mkTxns(C,O,hh/100,rng(seed*2654435761));
+    const r1=sim2PL(tt.map(t=>({id:t.id,ops:t.ops.slice()})));
+    const r2=simSSI(tt.map(t=>({id:t.id,ops:t.ops.slice()})));
+    xs.push(hh); ys2.push(r1.tput); ysS.push(r2.tput);
+  }
+  const W=620,H=170,P=34,maxY=Math.max(...ys2,...ysS)*1.1||1;
+  const px=i=>P+(W-P-8)*(i/(xs.length-1)), py=v=>H-24-(H-40)*(v/maxY);
+  const path=a2=>a2.map((v,i)=>(i?"L":"M")+px(i).toFixed(1)+","+py(v).toFixed(1)).join(" ");
+  let cross=-1;
+  for(let i=1;i<xs.length;i++) if((ysS[i-1]>ys2[i-1])!==(ysS[i]>ys2[i])){cross=xs[i];break;}
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;max-width:100%">';
+  for(let g=0;g<=4;g++){const y=H-24-(H-40)*(g/4);
+    svg+='<line x1="'+P+'" y1="'+y+'" x2="'+(W-8)+'" y2="'+y+'" stroke="var(--grid)" stroke-width="1"/>';}
+  svg+='<path d="'+path(ys2)+'" fill="none" stroke="var(--s4)" stroke-width="2"/>';
+  svg+='<path d="'+path(ysS)+'" fill="none" stroke="var(--s1)" stroke-width="2"/>';
+  if(cross>=0){const cx=px(xs.indexOf(cross));
+    svg+='<line x1="'+cx+'" y1="14" x2="'+cx+'" y2="'+(H-24)+'" stroke="var(--crit)" stroke-dasharray="3 3" stroke-width="1"/>';
+    svg+='<text x="'+(cx+5)+'" y="24" fill="var(--crit)" font-size="11" font-family="var(--mono)">交叉 '+cross+'%</text>';}
+  svg+='<text x="'+P+'" y="'+(H-6)+'" fill="var(--ink-3)" font-size="11">0%</text>';
+  svg+='<text x="'+(W-30)+'" y="'+(H-6)+'" fill="var(--ink-3)" font-size="11">100%</text>';
+  svg+='<text x="'+(W/2-52)+'" y="'+(H-6)+'" fill="var(--ink-3)" font-size="11">热点集中度 →</text>';
+  svg+='<text x="4" y="24" fill="var(--ink-3)" font-size="11">吞吐</text></svg>';
+  let note='<div class="card" style="margin:14px 0 0"><div class="card-t">把热点集中度从 0 扫到 100%：吞吐（事务数 / 总耗时）</div>'+svg+
+    '<div class="legend"><span><i style="width:16px;height:2px;background:var(--s4);display:inline-block"></i>2PL（悲观）</span>'+
+    '<span><i style="width:16px;height:2px;background:var(--s1);display:inline-block"></i>SSI（乐观）</span></div></div>';
+  const wr=x=>x.work?(x.wasted/x.work*100):0;
+  note+='<div class="note" style="margin:14px 0 0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--s1)"></span>两张不同的账单</div><p style="margin-bottom:0">'+
+    '<strong>2PL 的账单是「等待」</strong>：这一组参数下它中止了 '+a.aborts+' 次，白做 '+a.wasted+' 个操作'+
+    '（占总执行量的 '+wr(a).toFixed(0)+'%）。被锁挡住的事务只是<em>停在那里</em>，'+
+    '等到了就接着往下做——<u>已经做过的功不浪费</u>。它付的代价是线程闲置和延迟长尾。<br>'+
+    '<strong>SSI 的账单是「白做的功」</strong>：它中止了 '+b.aborts+' 次，白做 '+b.wasted+' 个操作'+
+    '（占 '+wr(b).toFixed(0)+'%）。它从不让任何人等，但一旦验证不通过，<u>整个事务从头再来</u>。<br><br>'+
+    '把热点集中度往右拉，看 SSI 那根「白做的操作」柱子怎么涨——'+
+    (wr(b)>wr(a)+15
+      ? '现在它已经是 2PL 的 <strong>'+(wr(a)>0?(wr(b)/wr(a)).toFixed(1)+' 倍':'好几倍')+'</strong>。'
+      : '现在两者还差不多，继续往右拉。')+
+    '墙上时间可能相差不大（'+a.tick+' vs '+b.tick+' ticks），'+
+    '<strong>但那些白做的功是实打实烧掉的 CPU</strong>，它要从这台机器上别的事情里扣。<br><br>'+
+    '<strong>所以没有哪一个「总是更好」：</strong><br>'+
+    '· 冲突低、事务短 ⇒ SSI 更合适：谁也不等，读事务完全无锁，延迟分布好看得多。<br>'+
+    '· 冲突高、事务长 ⇒ 2PL 更稳：等待难看，但<em>做过的功不会被扔掉</em>，行为可预测。<br>'+
+    '· <strong>还有一个数字上看不见的代价</strong>：SSI 要求应用层有<u>正确的重试逻辑</u>。'+
+    '重试时如果复用了上一次读到的值，那比不用 SSI 还危险——'+
+    '<em>你把一个本来会被数据库拦下的错误，变成了一个静默的错误。</em></p></div>';
+  $("#o4").innerHTML=note;
+}
+["i4h","i4c","i4o","i4s"].forEach(id=>$("#"+id).oninput=run4);
+run4();
+wrapT(document.querySelector("main"));
+
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

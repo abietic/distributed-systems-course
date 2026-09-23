@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · 第 0 章 · 序言与导论</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · 第 0 章</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">序言：这门课怎么学</a>
+    <a href="#s1">0.1 为什么需要分布式</a>
+    <a href="#s1" class="sub">▸ 实验：可用性计算器</a>
+    <a href="#s2">0.2 单机的三个免费假设</a>
+    <a href="#s3">0.3 三个不可靠</a>
+    <a href="#s3" class="sub">▸ 实验：不可靠网络沙盒</a>
+    <a href="#s4">0.4 时间：没有共同的"现在"</a>
+    <a href="#s4" class="sub">▸ 实验：时钟漂移</a>
+    <a href="#s5">0.5 原罪：慢与死不可分辨</a>
+    <a href="#s5" class="sub">▸ 实验：你来判决</a>
+    <a href="#s6">0.6 第三态与幂等性</a>
+    <a href="#s6" class="sub">▸ 实验：重试地狱</a>
+    <a href="#s7">0.7 两将军问题</a>
+    <a href="#s7" class="sub">▸ 实验：确认的无限回归</a>
+    <a href="#s8">0.8 故障模型谱系</a>
+    <a href="#s9">0.9 术语速查表</a>
+    <a href="#s10">0.10 完整学习路线图</a>
+    <a href="#s11">0.11 自测题（12 题）</a>
+    <a href="#s12">Lab 0 · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Chapter 0 · Preface</div>
+  <h1>当"一台机器"变成"一群机器"</h1>
+  <p class="lead">这门课不是从"什么是 CAP 定理"开始的。它从一个更朴素的问题开始：<em>单机编程时，有三件事你一直在免费享用，却从来没意识到它们的存在。</em>把程序拆到多台机器上的那一刻，这三件事同时消失了。分布式系统的全部理论——一致性模型、共识算法、分布式事务——本质上都是在赎回这三件失物，以及计算赎金。</p>
+
+  <div class="card">
+    <div class="card-t">这一章你会带走什么</div>
+    <ul style="margin-bottom:0">
+      <li>一个能挂载后续全部知识的<strong>心智框架</strong>（三个免费假设 → 三个不可靠 → 三类解法）</li>
+      <li>6 个可以亲手拖动、点击的<strong>交互实验</strong>，把抽象命题变成你眼睛看见的现象</li>
+      <li>20 个术语的<strong>零基础速查表</strong>——后面每一章都会反复用到</li>
+      <li>一份重新组织过的<strong>7 阶段学习路线图</strong>（比你原本的 3 段式多了必要的中间层）</li>
+      <li>Lab 0：用 Go 和 Java 各写一遍"不可靠信道"，亲手复现分布式系统里最贵的那个 bug</li>
+    </ul>
+  </div>
+
+  <h3>怎么用这份课件</h3>
+  <p>每一章都由四种东西组成，缺一不可：</p>
+  <table>
+    <thead><tr><th style="width:88px">形态</th><th>作用</th><th style="width:130px">你要做什么</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag">讲解</span></td><td>建立直觉。我尽量先给一个你日常见过的场景，再给术语——而不是反过来。</td><td>读，遇到不懂的词查 §0.9</td></tr>
+      <tr><td><span class="tag">实验</span></td><td>页面里可以直接玩的模拟器。理论是"我说的"，实验是"你看见的"。</td><td><strong>一定要动手拖滑块</strong></td></tr>
+      <tr><td><span class="tag">自测</span></td><td>折叠式问答。先自己想 30 秒再展开——展开前的那 30 秒才是学习发生的地方。</td><td>先想，再展开</td></tr>
+      <tr><td><span class="tag">Lab</span></td><td>Go / Java 可运行代码。理解一个分布式现象最快的方式是自己造一个出来。</td><td>跑一遍，改参数再跑</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>关于"完全零基础"</div>
+    <p>你选了零基础，所以我不会假设你知道 TCP、RPC、事务、副本是什么。每个术语第一次出现时都会用一句大白话解释。但我<strong>会</strong>假设你会写程序、知道函数调用是什么、知道变量存在内存里。这就够了。</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>0.1 为什么需要分布式：三堵墙</h2>
+  <p>先回答一个前提问题：既然分布式这么麻烦，为什么不干脆用一台机器？答案是，单机会撞上三堵墙，而且这三堵墙的性质完全不同。</p>
+
+  <div class="path">
+    <div class="pstep"><div class="n">1</div><div><div class="ti">容量墙 —— 一台机器装不下</div><div class="de">你的数据有 500 TB，单机最大硬盘 30 TB。你的 QPS 是 200 万，单机极限 5 万。这堵墙是<strong>物理的</strong>：加钱也翻不过去，因为世界上不存在那么大的机器。解法叫 <strong>分区 / 分片（Partitioning / Sharding）</strong>——把数据切开放到不同机器上。</div></div></div>
+    <div class="pstep"><div class="n">2</div><div><div class="ti">可用性墙 —— 一台机器一定会挂</div><div class="de">硬盘年故障率约 1–2%，电源、内存、网卡、机房断电、运维手抖……单机可用性做到 99.9%（年停机 8.7 小时）已经很不错，而 99.99% 单机做不到。这堵墙是<strong>概率的</strong>。解法叫 <strong>复制（Replication）</strong>——同一份数据存多份，挂一个还有别的。</div></div></div>
+    <div class="pstep"><div class="n">3</div><div><div class="ti">地理墙 —— 光速是有限的</div><div class="de">上海到弗吉尼亚，光在光纤里单程约 <strong>60 ms</strong>，往返 120 ms，这是物理下限，再多钱也买不到更快。美国用户访问上海的机器一定卡。解法是<strong>就近部署多地副本</strong>——于是你又回到了复制，而且是跨地域的复制。</div></div></div>
+  </div>
+
+  <p>注意这三堵墙的解法只有两个词：<em>分片</em> 和 <em>复制</em>。整个分布式系统领域，本质上就是在研究这两件事带来的后果。而"后果"就是这门课剩下的全部内容。</p>
+
+  <h3>但复制不是免费的——先看一个反直觉现象</h3>
+  <p>很多人以为"多加机器 = 更可靠"。这只在<strong>正确使用冗余</strong>时才成立。如果你只是把一个单体应用拆成 10 个微服务串行调用，每个服务 99.9% 可用，整条链路的可用性是 0.999<sup>10</sup> ≈ <strong>99.0%</strong>——你把年停机时间从 8.7 小时变成了 87 小时。拆分服务在没有冗余的情况下会<strong>降低</strong>可用性。</p>
+  <p>下面这个计算器让你亲手验证。三种拓扑的含义：</p>
+  <ul>
+    <li><strong>串联</strong>：N 个组件全都要活着，系统才可用（无冗余的调用链、微服务链路）</li>
+    <li><strong>并联</strong>：N 个副本任意一个活着就行（只读缓存、无状态服务 + 负载均衡）</li>
+    <li><strong>多数派 / Quorum</strong>：N 个副本中超过一半活着才行（Raft、ZooKeeper、etcd 集群——后面第 3 部分的主角）</li>
+  </ul>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 可用性计算器</div><div class="s">拖动滑块，观察三种拓扑的分化</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>单节点可用性 <b id="l1a">99.9%</b></label><input type="range" id="r1a" min="0" max="6" step="1" value="3"></div>
+        <div class="f"><label>节点数 N <b id="l1n">5</b></label><input type="range" id="r1n" min="1" max="15" step="1" value="5"></div>
+      </div>
+      <div class="stage" style="padding:18px"><svg id="sv1" viewBox="0 0 640 190" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--s2)"></span>串联（全都要活）</span>
+        <span><span class="dot" style="background:var(--s1)"></span>并联（任一活即可）</span>
+        <span><span class="dot" style="background:var(--s3)"></span>多数派（过半活）</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">串联可用性</div><div class="v" id="v1s">—</div><div class="u" id="u1s">年停机 —</div></div>
+        <div class="stat"><div class="k">并联可用性</div><div class="v" id="v1p">—</div><div class="u" id="u1p">年停机 —</div></div>
+        <div class="stat"><div class="k">多数派可用性</div><div class="v" id="v1q">—</div><div class="u" id="u1q">年停机 —</div></div>
+        <div class="stat"><div class="k">多数派门槛</div><div class="v" id="v1t">—</div><div class="u">至少存活节点数</div></div>
+      </div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p>1) 把单节点可用性调到 99%，N 调到 10，看串联可用性跌到多少。<br>
+           2) 保持 N=3 和 N=5，对比多数派可用性——你会发现 <strong>5 节点只比 3 节点好一点点</strong>，这就是为什么工业界 etcd / ZooKeeper 集群几乎总是 3 或 5 台，很少见 7 台以上。<br>
+           3) 把 N 调成偶数（比如 4），对比 N=3——<strong>4 节点的多数派可用性反而不如 3 节点</strong>。想想为什么？（提示：3 节点容许挂 1 台，4 节点也只容许挂 1 台，但多了一台会挂的机器。）</p>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="s2">
+  <h2>0.2 单机世界里你免费拥有的三件事</h2>
+  <p>这是本章最重要的一节。如果你只记住一页，记住这一页。</p>
+  <p>当你在一台机器上写下面这段代码时，你在<strong>无意识地依赖三个假设</strong>：</p>
+
+<pre><code><span class="cm">// 单机：一个再平常不过的转账</span>
+<span class="kw">func</span> <span class="fn">Transfer</span>(from, to *Account, amount <span class="kw">int</span>) {
+    mu.<span class="fn">Lock</span>()
+    <span class="kw">defer</span> mu.<span class="fn">Unlock</span>()
+    from.balance -= amount        <span class="cm">// ← 假设 ③：内存里只有一份余额</span>
+    to.balance   += amount
+    log.<span class="fn">Printf</span>(<span class="st">"%v 转账完成"</span>, time.<span class="fn">Now</span>())  <span class="cm">// ← 假设 ①：有一个共同的"现在"</span>
+}
+<span class="cm">// 调用方</span>
+<span class="fn">Transfer</span>(a, b, <span class="st">100</span>)   <span class="cm">// ← 假设 ②：它要么执行了，要么 panic 了，没有第三种可能</span>
+</code></pre>
+
+  <table>
+    <thead><tr><th style="width:34%">单机免费送你的</th><th style="width:33%">分布式里发生了什么</th><th>于是这门课要讲</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>① 一个共同的"现在"</strong><br><span style="font-size:13px;color:var(--ink-3)">所有代码读同一个时钟，先发生的事时间戳一定更小</span></td>
+        <td>每台机器有自己的石英晶振，走得快慢不一；NTP 校时会让时钟<strong>倒退</strong>。你无法用时间戳判断两台机器上事件的先后。</td>
+        <td>Lamport 逻辑时钟、向量时钟、happens-before 偏序、Google TrueTime、HLC 混合时钟</td>
+      </tr>
+      <tr>
+        <td><strong>② 调用只有两种结果</strong><br><span style="font-size:13px;color:var(--ink-3)">成功 or 失败，且你总能知道是哪种</span></td>
+        <td>网络调用有<strong>第三种结果：超时</strong>。超时意味着"我不知道"——对方可能没收到、可能执行了但回包丢了、可能还在慢慢执行。</td>
+        <td>幂等性、去重表、TCC、Saga、两阶段提交、exactly-once 的真相</td>
+      </tr>
+      <tr>
+        <td><strong>③ 数据只有一份</strong><br><span style="font-size:13px;color:var(--ink-3)">写进去立刻能读出来，谁读都一样</span></td>
+        <td>数据被复制成 3 份放在 3 台机器上。写了主副本，从副本还是旧值。两个客户端同时读，看到不同结果。</td>
+        <td>一致性模型谱系（线性一致 / 顺序一致 / 因果一致 / 最终一致）、CAP、Quorum、共识算法</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>把这三行刻在脑子里</div>
+    <p><strong>没有共同的时间</strong> → 顺序问题 → 逻辑时钟与共识<br>
+       <strong>没有确定的结果</strong> → 重复问题 → 幂等与分布式事务<br>
+       <strong>没有唯一的数据</strong> → 一致问题 → 一致性模型与复制协议</p>
+    <p style="margin-bottom:0">你在后面几十小时里学的每一个算法，都可以被归到这三行中的某一行。学到任何新概念时，先问自己：<em>它在赎回哪一件失物？</em></p>
+  </div>
+
+  <h3>顺带纠正一个常见误解</h3>
+  <p>很多入门材料说"分布式系统就是把任务分给多台机器并行做"。这描述的是<strong>并行计算</strong>。分布式系统的定义要苛刻得多，Leslie Lamport 有一句著名的定义：</p>
+  <div class="note">
+    <p style="margin-bottom:0;font-size:16px">"分布式系统就是这样一种系统：<strong>一台你根本不知道其存在的机器出了故障，会导致你自己的计算机不可用。</strong>"<br><span style="font-size:13px;color:var(--ink-3)">— Leslie Lamport, 1987</span></p>
+  </div>
+  <p>关键词是 <em>部分失效（partial failure）</em>。单机程序是"全有或全无"：机器挂了，整个程序一起消失。分布式系统里，一部分节点活着、一部分挂了、还有一部分你不知道死活——而程序必须在这种状态下继续正确工作。<strong>部分失效是分布式系统唯一的、也是全部的难点。</strong></p>
+</section>
+
+<section id="s3">
+  <h2>0.3 三个不可靠：网络、时钟、进程</h2>
+  <p>上一节的三个假设为什么会崩塌？因为分布式系统建立在三样不可靠的东西之上。</p>
+
+  <h3>不可靠的网络</h3>
+  <p>你在代码里写 <code>client.Call("Server.Add", args, &reply)</code>，看起来像个函数调用，但底下的网络可以做出五种"恶行"：</p>
+  <table>
+    <thead><tr><th style="width:80px">恶行</th><th style="width:38%">现象</th><th>真实世界的原因</th></tr></thead>
+    <tbody>
+      <tr><td><strong>丢包</strong></td><td>消息发出去，永远没到</td><td>交换机缓冲区满、网线松动、防火墙丢弃、路由黑洞</td></tr>
+      <tr><td><strong>延迟</strong></td><td>消息到了，但晚了 3 秒</td><td>排队、拥塞、GC 停顿、CPU 争抢、跨洋链路</td></tr>
+      <tr><td><strong>乱序</strong></td><td>先发的后到</td><td>多路径路由、重传</td></tr>
+      <tr><td><strong>重复</strong></td><td>同一个消息到了两次</td><td>底层重传 + 原包其实没丢</td></tr>
+      <tr><td><strong>分区</strong></td><td>集群被切成两半，互相不通，但各自内部正常</td><td>机架交换机故障、跨机房专线中断、BGP 配置错误</td></tr>
+    </tbody>
+  </table>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>TCP 能解决这些吗？</div>
+    <p style="margin-bottom:0">TCP 解决了<strong>单条连接内</strong>的丢包、乱序、重复（靠序号 + 重传 + 确认）。但它不能解决：连接本身断掉（此时已发送但未确认的数据去向不明）、超时、以及网络分区。<em>TCP 的可靠性止步于连接的边界，而分布式系统的问题恰恰发生在边界之外。</em>这就是为什么应用层还必须自己做幂等和重试。</p>
+  </div>
+
+  <p>下面这个沙盒是本章的核心实验，后面 §0.5、§0.6 还会回来用它。请务必玩几分钟。</p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · 不可靠网络沙盒</div><div class="s">观察"以为的"与"实际的"如何分道扬镳</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>丢包率 <b id="l2d">20%</b></label><input type="range" id="r2d" min="0" max="80" step="5" value="20"></div>
+        <div class="f"><label>平均延迟 <b id="l2l">400ms</b></label><input type="range" id="r2l" min="100" max="1500" step="50" value="400"></div>
+        <div class="f"><label>延迟抖动 <b id="l2j">300ms</b></label><input type="range" id="r2j" min="0" max="1200" step="50" value="300"></div>
+        <div class="f"><label>客户端超时 <b id="l2t">1200ms</b></label><input type="range" id="r2t" min="300" max="3000" step="100" value="1200"></div>
+        <div class="f" style="min-width:auto"><label style="visibility:hidden">a</label>
+          <label class="sw"><input type="checkbox" id="c2r" checked><span class="tr"></span>超时后自动重试</label></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b2one">发送 1 个请求</button>
+        <button id="b2ten">连发 20 个</button>
+        <button id="b2reset">重置统计</button>
+      </div>
+      <div class="stage"><svg id="sv2" viewBox="0 0 640 210" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--s1)"></span>请求飞行中</span>
+        <span><span class="dot" style="background:var(--ok)"></span>响应飞行中</span>
+        <span><span class="dot" style="background:var(--serious)"></span>丢包</span>
+        <span><span class="dot" style="background:var(--crit)"></span>客户端超时</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">客户端发起</div><div class="v" id="v2c">0</div><div class="u">笔业务</div></div>
+        <div class="stat"><div class="k">客户端认为成功</div><div class="v" id="v2ok" style="color:var(--ok)">0</div><div class="u">收到响应</div></div>
+        <div class="stat"><div class="k">客户端认为失败</div><div class="v" id="v2f" style="color:var(--crit)">0</div><div class="u">超时放弃</div></div>
+        <div class="stat"><div class="k">服务器实际执行</div><div class="v" id="v2s" style="color:var(--warn)">0</div><div class="u">次副作用</div></div>
+        <div class="stat"><div class="k">认知偏差</div><div class="v" id="v2gap">0</div><div class="u">实际 − 以为</div></div>
+      </div>
+      <div class="log" id="lg2"><div class="tsp">— 点击「发送 1 个请求」开始 —</div></div>
+      <div class="note crit" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--crit)"></span>你要观察的现象</div>
+        <p style="margin-bottom:0">连发 20 个请求，然后盯住最后两个数字：<strong>「客户端认为成功」和「服务器实际执行」几乎永远不相等</strong>。<br>
+        • 打开重试：服务器执行次数 <strong>&gt;</strong> 客户端以为的次数——<em>重复执行</em>（转账扣了两次钱）<br>
+        • 关闭重试：客户端认为失败的那些，服务器可能其实执行了——<em>幽灵成功</em>（用户看到"下单失败"，但订单其实创建了）<br>
+        这两个现象是你未来职业生涯中会反复遇到的真实故障。§0.6 会给出解法。</p>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="s4">
+  <h2>0.4 时间：没有一个共同的"现在"</h2>
+  <p>你可能觉得"时钟不准"顶多差几毫秒，不是大问题。这个直觉在分布式系统里会害死人。先看两种时钟：</p>
+  <dl class="kv">
+    <dt>墙上时钟<br><span style="font-size:12px;font-weight:400">wall clock</span></dt>
+    <dd><code>time.Now()</code> / <code>System.currentTimeMillis()</code>。返回"1970 年以来的秒数"，可以转成人类日期。<strong>会被 NTP 校准而跳变，甚至倒退。</strong>绝不能用来测量时间间隔。</dd>
+    <dt>单调时钟<br><span style="font-size:12px;font-weight:400">monotonic clock</span></dt>
+    <dd>Go 的 <code>time.Since()</code> / Java 的 <code>System.nanoTime()</code>。只保证"永远向前"，数值本身没有意义。<strong>可以测间隔，但不同机器之间毫无可比性。</strong></dd>
+  </dl>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>新手最常犯的两个错</div>
+    <p style="margin-bottom:0">① 用 <code>currentTimeMillis()</code> 的差值测耗时——NTP 一校时，你会得到负数的耗时，或者一个 -3600000 ms 的"超时"。<br>
+    ② 用时间戳比较两台机器上事件的先后——机器 A 的时钟快 50 ms，一个"后发生"的事件时间戳反而更小。基于时间戳的 <strong>last-write-wins</strong> 会因此静默丢数据（Cassandra 早期最著名的坑）。</p>
+  </div>
+  <p>石英晶振的典型漂移是每天几十毫秒到几秒；NTP 在广域网上的校准误差通常是 <strong>几十毫秒</strong>量级。而现代系统里两次操作的间隔可能只有几百微秒。<em>时钟误差比你要区分的时间尺度大好几个数量级</em>——这就是为什么必须发明"逻辑时钟"。</p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 时钟漂移与顺序倒置</div><div class="s">让时间戳给出错误的因果顺序</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>节点 A 漂移 <b id="l3a">+0 ms/s</b></label><input type="range" id="r3a" min="-120" max="120" step="10" value="90"></div>
+        <div class="f"><label>节点 B 漂移 <b id="l3b">+0 ms/s</b></label><input type="range" id="r3b" min="-120" max="120" step="10" value="0"></div>
+        <div class="f"><label>节点 C 漂移 <b id="l3c">+0 ms/s</b></label><input type="range" id="r3c" min="-120" max="120" step="10" value="-90"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b3run">运行 / 暂停</button>
+        <button id="b3ea">A 上发生事件</button>
+        <button id="b3eb">B 上发生事件</button>
+        <button id="b3ec">C 上发生事件</button>
+        <button id="b3ntp">NTP 校时（全部对齐）</button>
+        <button id="b3clr">清空事件</button>
+      </div>
+      <div class="stage" style="padding:16px"><svg id="sv3" viewBox="0 0 640 150" style="width:100%;height:auto;display:block"></svg></div>
+      <div id="tb3" style="margin-top:14px"></div>
+      <div class="note crit" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--crit)"></span>你要观察的现象</div>
+        <p style="margin-bottom:0">点「运行 / 暂停」让时钟走 <strong>20 秒</strong>（快钟 A 会跑在前面、慢钟 C 落在后面），然后<strong>在几秒内快速依次</strong>点 A → B → C 各产生一个事件。表格会同时给出<em>真实发生顺序</em>和<em>按时间戳排序的顺序</em>——被标红的行就是<strong>因果倒置</strong>：一个后发生的事件，时间戳却更小。<br>
+        现在想象这三个节点是同一个数据的三个副本，冲突解决策略是"时间戳大的赢"。<strong>你刚刚静默地丢了一次写入，而且没有任何日志会告诉你。</strong><br>
+        <span style="color:var(--ink-3);font-size:13px">注：这里的漂移被夸大了几个数量级（±90 ms/s）以便肉眼观察。真实石英钟的漂移约 10⁻⁵ 量级（每天几秒），但分布式系统要区分的事件间隔常常只有毫秒级——<strong>比例关系完全一样</strong>，所以问题同样严重。</span></p>
+      </div>
+    </div>
+  </div>
+  <p>解法的方向不是"把时钟调准"（做不到，除非像 Google Spanner 那样在每个机房装 GPS 接收器和原子钟），而是<em>放弃物理时间，改用事件之间的因果关系来定义顺序</em>。这就是 Lamport 在 1978 年论文里提出的 happens-before 关系——我们会在 Part 2 详细展开，那是整个领域最优雅的一篇论文。</p>
+</section>
+
+<section id="s5">
+  <h2>0.5 分布式系统的原罪：你无法区分"慢"和"死"</h2>
+  <p>现在把网络的不可靠和进程的不可靠放在一起，会得到一个致命的推论。</p>
+  <p>假设你是节点 A，向节点 B 发了一个请求，等了 2 秒没有回应。B 现在处于什么状态？</p>
+  <div class="two">
+    <div class="card"><div class="card-t">可能性 A</div><p style="margin-bottom:0">B <strong>崩溃了</strong>。进程没了，机器断电了，永远不会回复。你应该立刻选一个新的领导者，把 B 的活儿接过来。</p></div>
+    <div class="card"><div class="card-t">可能性 B</div><p style="margin-bottom:0">B <strong>活得好好的</strong>，只是正在经历一次 3 秒的 GC 停顿，或者网络拥塞让回包卡在队列里。它 1 秒后就会恢复，继续以为自己是领导者。</p></div>
+  </div>
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>核心结论（请读三遍）</div>
+    <p style="margin-bottom:0">在一个<strong>异步网络</strong>（消息延迟没有上界）中，<em>「节点崩溃」和「节点很慢」这两件事，从外部观察者的角度看是完全无法区分的。</em>你手上唯一的工具是超时，而超时只能告诉你"我等够久了"，永远不能告诉你"它死了"。</p>
+  </div>
+  <p>这个结论的代价极高：</p>
+  <ul>
+    <li>超时设短了 → 把活着的节点误判为死亡 → 选出第二个领导者 → <strong>脑裂（split-brain）</strong>，两个主同时写，数据分叉</li>
+    <li>超时设长了 → 真的挂了也要等很久才发现 → <strong>可用性下降</strong>，用户看到几十秒的卡顿</li>
+    <li>这不是"调参"能解决的权衡，它是<strong>信息论意义上的不可能</strong>——这也是 1985 年 <strong>FLP 不可能性定理</strong>的直觉来源：在完全异步、允许一个节点崩溃的系统里，不存在既保证安全又保证一定终止的共识算法。</li>
+  </ul>
+  <p>Raft、Paxos 这些算法并没有"解决"这个问题，它们做的是<em>把不可避免的风险从"数据错乱"转移到"暂时不可用"</em>——宁可停下来，也不出错。理解这一点，你就理解了共识算法的全部设计动机。</p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">4</div><div class="t">实验 4 · 你来判决</div><div class="s">给你一次超时，猜服务器的真实状态</div></div>
+    <div class="lab-b">
+      <div id="q4box">
+        <p style="font-size:15px;color:var(--ink)">客户端向服务器发送了 <code>扣款 100 元</code>，等待 <span id="q4to">1200</span> ms 后<strong style="color:var(--crit)">超时</strong>，没有收到任何响应。<br>你唯一掌握的信息就是上面这句话。请判断服务器此刻的真实状态：</p>
+        <div class="ctrl" style="gap:10px">
+          <button data-g="0">① 请求根本没到，钱没扣</button>
+          <button data-g="1">② 请求到了，正在执行/还没扣完</button>
+          <button data-g="2">③ 已经扣成功了，只是响应包丢了</button>
+        </div>
+      </div>
+      <div id="r4box" style="display:none"></div>
+      <div class="stats">
+        <div class="stat"><div class="k">已判决</div><div class="v" id="v4n">0</div><div class="u">轮</div></div>
+        <div class="stat"><div class="k">猜对</div><div class="v" id="v4c" style="color:var(--ok)">0</div><div class="u">次</div></div>
+        <div class="stat"><div class="k">你的准确率</div><div class="v" id="v4p">—</div><div class="u">对比随机猜 33%</div></div>
+      </div>
+      <div class="note" style="margin-bottom:0" id="n4">
+        <div class="note-h"><span class="dot" style="background:var(--s1)"></span>玩满 10 轮后再读这里</div>
+        <p style="margin-bottom:0">你的准确率会稳定在 33% 附近，因为<strong>你手上根本没有可用于区分的信息</strong>。这不是你笨——这是超时这个信号的本质缺陷。真正的工程解法不是"猜得更准"，而是<em>让猜错也不会造成损害</em>：这就是下一节的幂等性。</p>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="s6">
+  <h2>0.6 第三态与幂等性：本章最实用的一节</h2>
+  <p>单机函数调用有两种结果，网络调用有三种：</p>
+  <div class="path">
+    <div class="pstep" style="border-color:var(--ok)"><div class="n" style="background:var(--ok)">✓</div><div><div class="ti">成功</div><div class="de">收到了响应，且响应说成功。你确切知道对方做了。</div></div></div>
+    <div class="pstep" style="border-color:var(--crit)"><div class="n" style="background:var(--crit)">✗</div><div><div class="ti">明确失败</div><div class="de">收到了响应，响应说"参数非法"/"余额不足"。你确切知道对方没做。</div></div></div>
+    <div class="pstep" style="border-color:var(--warn)"><div class="n" style="background:var(--warn)">?</div><div><div class="ti">第三态：不确定（indeterminate）</div><div class="de">超时、连接被重置、进程崩溃。<strong>你不知道对方做了没有。</strong>这一态在单机世界里不存在，是分布式编程一切复杂度的源头。</div></div></div>
+  </div>
+
+  <h3>你只有两个选择，而且都不完美</h3>
+  <table>
+    <thead><tr><th style="width:110px">策略</th><th style="width:34%">做法</th><th>风险</th></tr></thead>
+    <tbody>
+      <tr><td><strong>至多一次</strong><br><span style="font-size:12px;color:var(--ink-3)">at-most-once</span></td><td>不重试。超时就报失败。</td><td>可能<strong>漏做</strong>：用户看到"下单失败"，但订单其实创建了（幽灵成功）。</td></tr>
+      <tr><td><strong>至少一次</strong><br><span style="font-size:12px;color:var(--ink-3)">at-least-once</span></td><td>超时就重试，重试到成功为止。</td><td>可能<strong>重做</strong>：转账扣两次、订单下两单、邮件发两封。</td></tr>
+    </tbody>
+  </table>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>"恰好一次（exactly-once）"存在吗？</div>
+    <p style="margin-bottom:0">在网络传输层面<strong>不存在</strong>——两将军问题（下一节）会证明这一点。任何号称 exactly-once 的系统（Kafka 的 EOS、Flink 的精确一次），实际做的都是：<em>at-least-once 传输 + 接收端幂等去重</em>。也就是说，<strong>exactly-once 是一个语义（effect）保证，不是一个传输（delivery）保证。</strong>这句话面试常考，也是很多线上事故的认知根源。</p>
+  </div>
+
+  <h3>解法：幂等性（idempotence）</h3>
+  <p>一个操作是幂等的，意思是<em>执行一次和执行 N 次，对系统状态的影响完全相同</em>。</p>
+  <ul>
+    <li><code>SET x = 5</code> 幂等；<code>x = x + 1</code> 不幂等</li>
+    <li>HTTP 的 GET / PUT / DELETE 语义上幂等；POST 不幂等</li>
+    <li><strong>把不幂等的操作变幂等的标准手法</strong>：让客户端生成一个唯一的 <code>幂等键 / idempotency key</code>（UUID 或业务单号），服务端把"键 → 结果"存进一张去重表，同一个键第二次来直接返回上次的结果，不重复执行副作用。Stripe、支付宝、微信支付的 API 都是这么设计的。</li>
+  </ul>
+<pre><code><span class="cm">// 服务端：把"扣款"变成幂等操作</span>
+<span class="kw">func</span> <span class="fn">Deduct</span>(key <span class="kw">string</span>, acct <span class="kw">string</span>, amount <span class="kw">int</span>) (Result, <span class="kw">error</span>) {
+    tx := db.<span class="fn">Begin</span>()
+    <span class="kw">defer</span> tx.<span class="fn">Rollback</span>()
+
+    <span class="cm">// ① 去重表插入，唯一索引在 key 上</span>
+    <span class="kw">if</span> err := tx.<span class="fn">Exec</span>(<span class="st">"INSERT INTO dedup(key) VALUES(?)"</span>, key); <span class="fn">isDup</span>(err) {
+        <span class="kw">return</span> tx.<span class="fn">LoadResult</span>(key), <span class="kw">nil</span>   <span class="gd">// ← 重复请求，返回上次结果，不再扣款</span>
+    }
+    <span class="cm">// ② 真正的副作用，和 ① 在同一个事务里 —— 这一点至关重要</span>
+    tx.<span class="fn">Exec</span>(<span class="st">"UPDATE accounts SET balance = balance - ? WHERE id = ?"</span>, amount, acct)
+    tx.<span class="fn">SaveResult</span>(key, ok)
+    <span class="kw">return</span> ok, tx.<span class="fn">Commit</span>()
+}
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>为什么去重表必须和业务操作在同一个事务里？</div>
+    <p style="margin-bottom:0">如果分成两步（先写去重表，再扣款），那么在两步之间崩溃会导致：去重表说"做过了"，但钱没扣，重试也会被拦截 → <strong>永久丢失一次操作</strong>。反过来先扣款再写去重表，崩溃后重试会扣两次。<em>把两个副作用绑进一个原子操作</em>——这个思路是后面所有分布式事务方案（2PC、本地消息表、事务消息）的共同起点。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">5</div><div class="t">实验 5 · 重试地狱 vs 幂等键</div><div class="s">同一份网络故障，两种代码，两种结局</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>丢包率 <b id="l5d">35%</b></label><input type="range" id="r5d" min="0" max="80" step="5" value="35"></div>
+        <div class="f"><label>最大重试次数 <b id="l5r">3</b></label><input type="range" id="r5r" min="0" max="6" step="1" value="3"></div>
+        <div class="f"><label>转账笔数 <b id="l5n">20</b></label><input type="range" id="r5n" min="5" max="60" step="5" value="20"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b5run">运行对照实验</button>
+        <button id="b5clr">清空</button>
+      </div>
+      <div class="two">
+        <div class="card" style="margin:0;border-color:var(--crit)">
+          <div class="card-t" style="color:var(--crit)">A · 无幂等键（天真的重试）</div>
+          <div class="stats" style="margin-top:0">
+            <div class="stat"><div class="k">应扣</div><div class="v" id="v5ae">0</div><div class="u">元</div></div>
+            <div class="stat"><div class="k">实扣</div><div class="v" id="v5aa" style="color:var(--crit)">0</div><div class="u">元</div></div>
+            <div class="stat"><div class="k">差额</div><div class="v" id="v5ad" style="color:var(--crit)">0</div><div class="u">元</div></div>
+          </div>
+        </div>
+        <div class="card" style="margin:0;border-color:var(--ok)">
+          <div class="card-t" style="color:var(--ok)">B · 有幂等键（去重表）</div>
+          <div class="stats" style="margin-top:0">
+            <div class="stat"><div class="k">应扣</div><div class="v" id="v5be">0</div><div class="u">元</div></div>
+            <div class="stat"><div class="k">实扣</div><div class="v" id="v5ba" style="color:var(--ok)">0</div><div class="u">元</div></div>
+            <div class="stat"><div class="k">差额</div><div class="v" id="v5bd" style="color:var(--ok)">0</div><div class="u">元</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="log" id="lg5"><div class="tsp">— 点击「运行对照实验」—</div></div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">把最大重试次数调到 0，观察 A 组不再多扣，但<strong>「应扣」和「实扣」也对不上了</strong>（漏扣）——这就是 at-most-once 的代价。然后调回 3，只有 B 组能同时做到不多不漏。<em>幂等 + 重试 = 工程上可达的"恰好一次效果"。</em></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>0.7 两将军问题：为什么"确认"永远不够</h2>
+  <p>这是分布式领域最古老的思想实验（1975），它证明了一件事：<em>在信道可能丢消息的前提下，两方无法达成确定的共同知识（common knowledge）。</em></p>
+  <p><strong>场景</strong>：两支军队分别在山谷两侧，只有同时进攻才能获胜，任何一方单独进攻必败。将军之间只能派信使穿过敌占区传信，信使可能被抓（消息丢失）。问：他们能否约定一个共同的进攻时间？</p>
+  <p>A 发出"凌晨 4 点进攻"。但 A 不敢进攻，因为不知道信使有没有到。于是 B 收到后回一个确认。但 B 也不敢进攻，因为不知道确认有没有到 A 那里——如果确认丢了，A 不会进攻，B 单独进攻就是送死。于是 A 收到确认后再回一个"确认的确认"……<strong>这个过程永不终止。</strong></p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">6</div><div class="t">实验 6 · 确认的无限回归</div><div class="s">试着让两位将军都敢进攻</div></div>
+    <div class="lab-b">
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b7send">再发一次确认</button>
+        <button id="b7auto">自动连发 ×8</button>
+        <button id="b7clr">重来</button>
+      </div>
+      <div class="stage" style="padding:16px"><svg id="sv7" viewBox="0 0 640 130" style="width:100%;height:auto;display:block"></svg></div>
+      <div id="k7" style="margin-top:14px"></div>
+      <div class="note crit" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--crit)"></span>你要观察的现象</div>
+        <p style="margin-bottom:0">无论你点多少次，<strong>最后一个发消息的人永远不知道对方是否收到</strong>，所以他永远不敢进攻。知识层级可以无限加深（"A 知道 B 知道 A 知道…"），但<em>共同知识永远无法达成</em>。<br>
+        <strong>这对工程意味着什么？</strong>网络层的"恰好一次投递"在理论上就不存在，不是工程师不够努力。所有实际系统都是在<em>概率上足够好</em>（重试 N 次后失败概率极低）+ <em>语义上幂等</em> 之间做妥协。分布式事务里的两阶段提交同样受制于此——协调者在发出 commit 后崩溃，参与者就会陷入完全一样的困境。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s8">
+  <h2>0.8 故障模型谱系：先说清楚"坏"是怎么个坏法</h2>
+  <p>设计任何分布式算法前，必须先声明它假设了哪种故障模型。模型越弱（假设的坏事越多），算法越复杂、代价越高。</p>
+  <table>
+    <thead><tr><th style="width:24%">故障模型</th><th style="width:36%">节点可能怎么坏</th><th>代表算法 / 容错代价</th></tr></thead>
+    <tbody>
+      <tr><td><strong>崩溃-停止</strong><br><span style="font-size:12px;color:var(--ink-3)">crash-stop / fail-stop</span></td><td>要么正常，要么彻底停机且<strong>永不回来</strong>。</td><td>最理想化的模型，教学常用。</td></tr>
+      <tr><td><strong>崩溃-恢复</strong><br><span style="font-size:12px;color:var(--ink-3)">crash-recovery</span></td><td>会崩溃，之后<strong>可能重启回来</strong>，内存丢失，磁盘上的持久化数据还在。</td><td><strong>Raft / Paxos / ZAB</strong> 的模型。需 <code>2f+1</code> 个节点容忍 <code>f</code> 个故障——所以 3 台容 1 台，5 台容 2 台。</td></tr>
+      <tr><td><strong>遗漏</strong><br><span style="font-size:12px;color:var(--ink-3)">omission</span></td><td>节点活着，但会丢失部分收发的消息。</td><td>介于崩溃与拜占庭之间，实践中常被归入崩溃-恢复处理。</td></tr>
+      <tr><td><strong>拜占庭</strong><br><span style="font-size:12px;color:var(--ink-3)">Byzantine</span></td><td>节点可能<strong>任意行为</strong>：说谎、对不同人说不同的话、伪造消息、被黑客控制。</td><td><strong>PBFT / 区块链共识</strong>。需 <code>3f+1</code> 个节点容忍 <code>f</code> 个恶意节点，且需要签名。代价高得多。</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>为什么拜占庭需要 3f+1 而不是 2f+1？</div>
+    <p style="margin-bottom:0">崩溃模型里，沉默的节点只是"缺席"，剩下的诚实节点意见一致即可。拜占庭模型里，恶意节点会<strong>主动投出错误的票</strong>。假设 <code>n=3, f=1</code>：诚实节点 A 收到 B 说"进攻"、C 说"撤退"，其中一个在说谎，但 A 无法分辨——2 比 1 的多数无法形成。需要 <code>n ≥ 3f+1</code>，才能保证在扣掉 f 个恶意节点和 f 个可能不可达的节点后，剩下的诚实节点仍构成多数。<br><span style="font-size:13px;color:var(--ink-3)">工程提示：绝大多数公司内部系统（数据库、消息队列、协调服务）假设的是<strong>崩溃-恢复</strong>模型，因为机房里的机器不会主动作恶。拜占庭容错主要出现在区块链等去信任场景。这门课的主线是崩溃-恢复模型。</span></p>
+  </div>
+
+  <h3>另一组必须区分的词：安全性 vs 活性</h3>
+  <div class="two">
+    <div class="card" style="border-color:var(--crit)"><div class="card-t" style="color:var(--crit)">安全性 Safety</div>
+      <p style="margin-bottom:0"><em>"坏事永远不会发生。"</em><br>例：任何时刻最多只有一个 leader；已提交的数据永不丢失；不会读到不存在的值。<br><strong>安全性一旦被违反，损害不可撤销</strong>（钱已经错扣了）。所以工程上宁可牺牲活性也要保安全性。</p></div>
+    <div class="card" style="border-color:var(--s1)"><div class="card-t" style="color:var(--s1)">活性 Liveness</div>
+      <p style="margin-bottom:0"><em>"好事最终会发生。"</em><br>例：请求最终会得到响应；集群最终会选出 leader。<br><strong>活性被违反只是"暂时不可用"</strong>，网络恢复后系统会自愈。注意"最终"没有时限——这正是 FLP 定理攻击的地方。</p></div>
+  </div>
+  <p>后面读任何论文或看任何算法，第一件事就是问：<em>它的安全性保证是什么？它在什么条件下才有活性？</em>Raft 论文的整个正确性证明就是围绕五条安全性属性展开的。</p>
+</section>
+<section id="s9">
+  <h2>0.9 术语速查表</h2>
+  <p>后面每一章都会用到这 20 个词。现在不用背，遇到时回来查。</p>
+  <table>
+    <thead><tr><th style="width:20%">术语</th><th style="width:44%">一句话解释</th><th>常见误解 / 补充</th></tr></thead>
+    <tbody>
+      <tr><td><strong>节点</strong> node</td><td>参与系统的一个独立进程（通常一台机器一个）。</td><td>关注点是"独立的失败单元"，不是"物理机"。</td></tr>
+      <tr><td><strong>副本</strong> replica</td><td>同一份数据在不同节点上的多个拷贝。</td><td>为了容错和就近读，代价是一致性问题。</td></tr>
+      <tr><td><strong>分片</strong> shard / partition</td><td>把大数据集切成互不重叠的小块，分散到不同节点。</td><td>Kafka 里叫 partition，MySQL 里叫分库分表。解决容量，不解决容错。</td></tr>
+      <tr><td><strong>主 / 从</strong> leader / follower</td><td>一组副本中指定一个负责接收写入，其余同步它。</td><td>也叫 primary/secondary、master/slave。写入串行化的最简单办法。</td></tr>
+      <tr><td><strong>法定人数</strong> quorum</td><td>做决定所需的最少节点数，通常是"过半"（N/2+1）。</td><td>过半的关键性质：<strong>任意两个 quorum 必有交集</strong>，这保证了新旧决定不会互相矛盾。</td></tr>
+      <tr><td><strong>脑裂</strong> split-brain</td><td>网络分区后两边各自选出 leader，同时接受写入，数据分叉。</td><td>quorum 机制正是为了防止它：少数派凑不齐过半，无法选主。</td></tr>
+      <tr><td><strong>复制日志</strong> replicated log</td><td>把所有写操作按顺序记成一个 append-only 的日志，副本按同样顺序重放。</td><td><em>整个共识领域的核心抽象。</em>Raft、Kafka、MySQL binlog 全是这个模式。</td></tr>
+      <tr><td><strong>状态机复制</strong> RSM</td><td>确定性状态机 + 相同顺序的相同输入 ⇒ 相同的最终状态。</td><td>"确定性"很重要：日志里不能有 <code>rand()</code> 或 <code>now()</code>。</td></tr>
+      <tr><td><strong>共识</strong> consensus</td><td>让一组节点对"下一条日志是什么"达成一致，且决定后不可更改。</td><td>Paxos / Raft / ZAB 解决的都是这一个问题。</td></tr>
+      <tr><td><strong>RPC</strong></td><td>远程过程调用：让网络调用"看起来像"本地函数调用。</td><td><strong>它看起来像本地调用，这正是它最危险的地方</strong>——掩盖了延迟、失败和第三态。</td></tr>
+      <tr><td><strong>幂等</strong> idempotent</td><td>执行 1 次和 N 次效果相同。</td><td>重试安全的前提条件。</td></tr>
+      <tr><td><strong>第三态</strong></td><td>请求超时，你不知道对方执行了没有。</td><td>单机世界不存在的状态。</td></tr>
+      <tr><td><strong>一致性</strong> consistency</td><td>多个副本对外表现得像不像"只有一份数据"。</td><td><strong>注意歧义</strong>：CAP 里的 C（线性一致性）和 ACID 里的 C（约束不被破坏）是<em>完全不同的两个概念</em>，这是最常见的术语混淆。</td></tr>
+      <tr><td><strong>线性一致性</strong> linearizability</td><td>最强的单对象一致性：系统表现得就像所有操作在某个瞬间原子地、按真实时间顺序发生。</td><td>直觉版："写完之后，任何人立刻都能读到新值。"代价是每次读写都要走一遍共识。</td></tr>
+      <tr><td><strong>最终一致性</strong> eventual consistency</td><td>如果停止写入，所有副本最终会收敛到相同的值。</td><td><strong>"最终"没有时限保证</strong>，中间可以任意乱。它是一个非常弱的保证，弱到几乎没说什么。</td></tr>
+      <tr><td><strong>因果一致性</strong> causal consistency</td><td>有因果关系的操作，所有人看到的顺序一致；无关操作的顺序可以不同。</td><td>实践中的甜点：比最终一致强得多，又不需要全局共识。</td></tr>
+      <tr><td><strong>可见性</strong> visibility</td><td>一个写入从"提交"到"能被其他人读到"之间的关系。</td><td>你路线图里提到的词，它其实是一致性模型在描述的东西。</td></tr>
+      <tr><td><strong>网络分区</strong> partition</td><td>集群被切成互不通信的两组，各组内部正常。</td><td>CAP 里的 P。它是<strong>不可选的</strong>——分区一定会发生，你只能选分区时保 C 还是保 A。</td></tr>
+      <tr><td><strong>安全性 / 活性</strong></td><td>坏事不发生 / 好事最终发生。</td><td>见 §0.8。</td></tr>
+      <tr><td><strong>拜占庭</strong> Byzantine</td><td>节点可能任意作恶，包括说谎。</td><td>需要 3f+1，代价远高于崩溃容错。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="s10">
+  <h2>0.10 完整学习路线图</h2>
+  <p>你原本的三段式（基础定义 → 算法 → 应用）方向是对的，但中间缺了两层关键的脚手架，直接从"定义"跳到"Raft"会很痛苦。我把它扩成 7 个 Part，每个 Part 都有明确的"能力交付"。</p>
+
+  <div class="path">
+    <div class="pstep here"><div class="n">0</div><div><div class="ti">Part 0 · 序言与心智模型 <span class="tag" style="border-color:var(--s1);color:var(--s1)">你在这里</span></div>
+      <div class="de">三个免费假设的崩塌 · 三个不可靠 · 故障模型 · 两将军 · 幂等性 · 术语表<br><strong>能力交付</strong>：拿到任何分布式概念，能判断它在解决"时间/结果/数据"三个问题中的哪一个。</div></div></div>
+
+    <div class="pstep"><div class="n">1</div><div><div class="ti">Part 1 · 时间、顺序与因果</div>
+      <div class="de">物理时钟与单调时钟 · happens-before 偏序 · <strong>Lamport 逻辑时钟</strong> · <strong>向量时钟</strong> · 全序广播 · 混合逻辑时钟 HLC · Google TrueTime<br><strong>Lab</strong>：实现 Lamport 时钟与向量时钟，用向量时钟检测并发写冲突。<br><strong>能力交付</strong>：能在没有全局时钟的前提下正确判断事件因果关系。</div></div></div>
+
+    <div class="pstep"><div class="n">2</div><div><div class="ti">Part 2 · 复制与一致性模型</div>
+      <div class="de">主从 / 多主 / 无主复制 · 同步 vs 异步复制 · 复制延迟三大异常（读己之写、单调读、一致前缀读）· <strong>一致性谱系</strong>：线性一致 → 顺序一致 → 因果一致 → 最终一致 · <strong>CAP 的正确读法与 PACELC</strong> · Quorum（W+R&gt;N）· 读修复与反熵 · Dynamo 风格 · CRDT 无冲突数据类型<br><strong>Lab</strong>：实现一个 Quorum KV 存储，注入分区观察一致性异常；实现一个 G-Counter CRDT。<br><strong>能力交付</strong>：看到一个系统的配置，能说出它给了什么一致性保证、代价是什么。</div></div></div>
+
+    <div class="pstep"><div class="n">3</div><div><div class="ti">Part 3 · 共识算法</div>
+      <div class="de">为什么需要共识 · <strong>FLP 不可能性</strong>与故障检测器 · 两阶段提交 2PC 的阻塞问题与 3PC · <strong>Paxos</strong>（Basic → Multi）· <strong>Raft 逐行精读</strong>（选举 / 日志复制 / 安全性 / 成员变更 / 快照）· ZAB 与 Viewstamped Replication · Raft vs Paxos 的工程取舍<br><strong>Lab</strong>（重头戏）：<strong>用 Go 从零实现一个可用的 Raft</strong>（对标 MIT 6.5840 Lab 2），含选举、日志复制、持久化与快照；用 Java 实现一个 2PC 协调者并复现协调者崩溃导致的阻塞。<br><strong>能力交付</strong>：能读懂 etcd/TiKV 的 raft 源码，能定位选主抖动类线上问题。</div></div></div>
+
+    <div class="pstep"><div class="n">4</div><div><div class="ti">Part 4 · 分布式事务</div>
+      <div class="de">先补单机事务：ACID · 隔离级别与并发异常（脏读/不可重复读/幻读/写偏斜）· MVCC · 快照隔离 · 可串行化<br>再进分布式：<strong>2PC/XA</strong> · <strong>TCC</strong> · <strong>Saga</strong> · 本地消息表与<strong>事务消息</strong>（RocketMQ）· Percolator（TiDB 的事务模型）· Calvin 确定性事务 · Spanner 的外部一致性<br><strong>Lab</strong>：用 Java 实现 TCC 与 Saga 两种补偿事务并对比失败语义；用 Go 实现 Percolator 的两阶段提交。<br><strong>能力交付</strong>：能为一个跨服务的业务场景选出正确的事务方案并说清它的失败模式。</div></div></div>
+
+    <div class="pstep"><div class="n">5</div><div><div class="ti">Part 5 · 经典系统精读（论文 + 源码）</div>
+      <div class="de"><strong>存储层</strong>：GFS/HDFS · Bigtable/HBase（LSM-Tree + SSTable）· Dynamo · Spanner<br><strong>计算层</strong>：MapReduce · Spark RDD 血缘 · 流批一体<br><strong>协调层</strong>：<strong>ZooKeeper</strong>（znode / watch / 会话 / 分布式锁的正确姿势与 fencing token）· etcd<br><strong>消息层</strong>：<strong>Kafka</strong>（分区 / ISR / HW &amp; LEO / 事务与 EOS）· <strong>RocketMQ</strong>（事务消息 / 顺序消息 / 延迟消息）<br><strong>数据库层</strong>：<strong>Vitess</strong>（MySQL 分片路由与 VTGate）· TiDB · CockroachDB<br><strong>能力交付</strong>：能从架构图反推设计权衡，而不只是会调 API。</div></div></div>
+
+    <div class="pstep"><div class="n">6</div><div><div class="ti">Part 6 · 工程化与验证</div>
+      <div class="de">分布式锁的陷阱（Redlock 之争与 fencing token）· 幂等与去重的工业实现 · 限流熔断与背压 · 灰度与滚动升级中的版本共存 · <strong>混沌工程</strong> · <strong>Jepsen 一致性测试</strong> · <strong>TLA+ 形式化验证入门</strong> · 可观测性与分布式追踪<br><strong>Lab</strong>：用 Jepsen 思路给自己写的 Raft 跑一次线性一致性检查。<br><strong>能力交付</strong>：能证明（而不只是相信）自己的系统是对的。</div></div></div>
+  </div>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>关于节奏</div>
+    <p style="margin-bottom:0">Part 1–2 是地基，走得快一点没关系；<strong>Part 3 的 Raft 实现是整条路线的分水岭</strong>，建议在那里慢下来，真的把代码写出来跑通——这一个 Lab 的收获超过读十篇论文。Part 5 可以按你的工作需要挑着看，不必按顺序。</p>
+  </div>
+</section>
+
+<section id="s11">
+  <h2>0.11 自测题</h2>
+  <p>先自己想 30 秒再展开。展开前的那 30 秒才是学习真正发生的地方。</p>
+
+  <details class="q"><summary>1. 把一个单体应用拆成 5 个微服务串行调用，每个 99.9% 可用，整体可用性是多少？这说明了什么？</summary>
+    <div class="a"><p>0.999<sup>5</sup> ≈ <strong>99.5%</strong>，年停机从 8.8 小时涨到约 43.8 小时。</p>
+    <p>说明：<em>拆分服务本身会降低可用性</em>。微服务提高的是开发效率和独立伸缩能力，可用性必须靠额外的冗余（多副本 + 重试 + 熔断降级）单独买回来。这是很多团队微服务化后可用性反而下降的直接原因。</p></div></details>
+
+  <details class="q"><summary>2. 单机编程时你免费拥有的三件事是什么？它们各自对应后面哪一类算法？</summary>
+    <div class="a"><ul><li><strong>一个共同的"现在"</strong> → 崩塌为顺序问题 → Lamport 时钟、向量时钟、共识（全序广播）</li><li><strong>调用只有成功/失败两种结果</strong> → 崩塌为第三态 → 幂等、去重、2PC/TCC/Saga</li><li><strong>数据只有一份</strong> → 崩塌为副本不一致 → 一致性模型、Quorum、复制协议</li></ul>
+    <p style="margin-bottom:0">如果你能默写出这三行，这一章的核心目标就达成了。</p></div></details>
+
+  <details class="q"><summary>3. 为什么 etcd / ZooKeeper 集群通常是 3 台或 5 台，而不是 4 台或 6 台？</summary>
+    <div class="a"><p>共识需要过半（quorum = ⌊N/2⌋+1）。<strong>3 台的 quorum 是 2，容忍 1 台故障；4 台的 quorum 是 3，也只容忍 1 台故障。</strong>4 台没有提升容错能力，却多了一台会坏的机器，还多了一份网络往返成本——所以偶数节点在容错上是纯亏。</p>
+    <p style="margin-bottom:0">至于为什么很少超过 5 台：每次写入都要等过半节点确认，节点越多延迟越高（尾延迟被最慢的那台拖累）。3/5 是容错能力与写延迟之间的甜点。需要更多读能力时，用 learner / observer 这种不参与投票的只读节点扩展。</p></div></details>
+
+  <details class="q"><summary>4. 客户端调用超时了。它能得出"服务器没有执行这个请求"的结论吗？</summary>
+    <div class="a"><p><strong>不能。</strong>超时只说明"在我等待的时间内没收到响应"，它无法区分四种情况：请求丢了 / 请求到了但服务器还在处理 / 服务器执行完了但响应丢了 / 服务器崩溃了（崩溃前可能已执行）。</p>
+    <p style="margin-bottom:0">这就是第三态。工程上的正确做法不是去猜，而是<em>让猜错也无害</em>：把操作设计成幂等的，然后放心重试。</p></div></details>
+
+  <details class="q"><summary>5. Kafka / Flink 号称支持 exactly-once，这和两将军问题矛盾吗？</summary>
+    <div class="a"><p>不矛盾，因为它们保证的是<strong>处理效果恰好一次（effectively-once）</strong>，不是<strong>投递恰好一次</strong>。</p>
+    <p style="margin-bottom:0">实现方式是 <em>at-least-once 传输 + 接收端去重/事务</em>：Kafka 给每个 producer 分配 PID 和单调递增的 sequence number，broker 端据此丢弃重复；配合事务把"写数据"和"提交 offset"绑成一个原子操作。<strong>网络层面的 exactly-once 投递在理论上不存在</strong>——两将军问题证明了这一点。</p></div></details>
+
+  <details class="q"><summary>6. 什么是脑裂？quorum 机制为什么能防止它？</summary>
+    <div class="a"><p>网络分区把集群切成两半后，两边各自认为对方挂了，各自选出 leader 并接受写入，数据分叉且无法自动合并。</p>
+    <p style="margin-bottom:0">quorum 要求当选 leader 必须获得<strong>超过半数</strong>节点的选票。5 个节点被切成 3+2 两组时，只有 3 那一组能凑齐 3 票，2 那一组永远选不出 leader——<em>因为任意两个过半集合必然有交集，不可能同时存在两个 quorum</em>。少数派会主动停止服务（牺牲可用性保安全性），这正是 CAP 中"选 CP"的含义。</p></div></details>
+
+  <details class="q"><summary>7. 用 <code>System.currentTimeMillis()</code> 的差值来测量一段代码的耗时，可能出什么问题？</summary>
+    <div class="a"><p>它是墙上时钟，会被 NTP 校准而<strong>跳变甚至倒退</strong>。你可能得到负数耗时，或者一个突然多出几小时的"超时"。闰秒和虚拟机迁移也会造成同样问题。</p>
+    <p style="margin-bottom:0">正确做法：测间隔用单调时钟——Java 的 <code>System.nanoTime()</code>，Go 的 <code>time.Since(start)</code>（Go 的 <code>time.Time</code> 内部同时带有单调读数，<code>Sub</code> 会自动使用它）。<strong>墙上时钟只用于"显示给人看"和"记录日期"，绝不用于测量和排序。</strong></p></div></details>
+
+  <details class="q"><summary>8. CAP 里的 C 和 ACID 里的 C 是同一个东西吗？</summary>
+    <div class="a"><p><strong>完全不是</strong>，这是分布式领域最常见的术语混淆。</p>
+    <ul><li><strong>CAP 的 C</strong> = 线性一致性（linearizability），描述多副本对外是否表现得像单副本，是一个<em>系统层面</em>的属性。</li>
+    <li><strong>ACID 的 C</strong> = 一致性约束不被破坏（比如外键约束、余额非负），是<em>应用层面</em>的属性，本质上由应用代码保证，数据库只是提供了 A（原子性）和 I（隔离性）来帮忙。</li></ul>
+    <p style="margin-bottom:0">Brewer 自己后来也承认 CAP 的表述有误导性——"三选二"的说法尤其糟糕，因为 P 根本不是可选项。</p></div></details>
+
+  <details class="q"><summary>9. 崩溃容错需要 2f+1 个节点，拜占庭容错需要 3f+1，为什么多了 f 个？</summary>
+    <div class="a"><p>崩溃模型下，故障节点只会"沉默"，不会给出错误信息。诚实节点之间不会互相误导，所以只要 f+1 个诚实节点（即 2f+1 中扣掉 f 个崩溃的）就能形成多数。</p>
+    <p style="margin-bottom:0">拜占庭模型下，恶意节点会<strong>主动投出矛盾的票</strong>，而且可能对不同节点说不同的话。要在扣掉 f 个可能不响应的节点后，剩下的 n−f 个响应中仍能保证诚实票占多数（即 n−f−f &gt; f），推出 <strong>n &gt; 3f</strong>，即 n ≥ 3f+1。</p></div></details>
+
+  <details class="q"><summary>10. 为什么幂等去重表必须和业务操作在同一个事务里？分开写会怎样？</summary>
+    <div class="a"><p>如果分成两个独立步骤，中间崩溃会产生两种坏结果：</p>
+    <ul><li><strong>先写去重表，再做业务</strong>：崩在中间 → 去重表说"做过了"，但业务没做，客户端重试会被拦截 → <em>永久丢失一次操作</em>。</li>
+    <li><strong>先做业务，再写去重表</strong>：崩在中间 → 业务做了但没记录，客户端重试会<em>再做一次</em> → 重复扣款。</li></ul>
+    <p style="margin-bottom:0">只有把两者放进同一个原子事务，才能保证"记录了就一定做了，做了就一定记录了"。这个"把两个副作用绑成一个原子操作"的思路，是 Part 4 里本地消息表、事务消息、Outbox 模式的共同起点。</p></div></details>
+
+  <details class="q"><summary>11. Lamport 说"一台你根本不知道其存在的机器出故障，会导致你的计算机不可用"——这句话在强调什么？</summary>
+    <div class="a"><p>强调 <strong>部分失效（partial failure）</strong>。单机程序是全有或全无；分布式系统里总有一部分组件是坏的、一部分是慢的、一部分死活未知，而系统必须在这种混合状态下继续正确工作。</p>
+    <p style="margin-bottom:0">它同时也在讽刺一种设计倾向：把远程调用包装得和本地调用一模一样（早期的 RPC 和 CORBA），会诱导开发者忘记网络的存在。<em>好的分布式 API 应该让失败可见，而不是把它藏起来。</em></p></div></details>
+
+  <details class="q"><summary>12. 【综合】设计一个"用户点击按钮领取优惠券，每人限领一次"的接口，在分布式环境下要考虑哪些本章讲过的问题？</summary>
+    <div class="a"><p>至少这几层：</p>
+    <ol>
+      <li><strong>第三态</strong>：用户点了按钮，App 超时。用户会重复点击。所以接口必须<strong>幂等</strong>——用 <code>用户ID + 活动ID</code> 作为天然幂等键（比随机 UUID 更好，因为它表达了业务上的唯一性），配唯一索引。</li>
+      <li><strong>原子性</strong>：「插入领取记录」和「扣减库存」必须在同一事务内，否则崩溃会造成超发或少发。</li>
+      <li><strong>并发</strong>：两个请求同时到达两台应用服务器。<em>不能</em>用"先 SELECT 查有没有领过，再 INSERT"——这是典型的检查后行动竞态。要靠数据库唯一索引，让冲突在存储层被拒绝。</li>
+      <li><strong>不能用时间戳做判重</strong>：两台机器时钟不同步，"谁先到"不可靠。</li>
+      <li><strong>如果用了分布式锁</strong>：注意锁的持有者可能因 GC 停顿超过锁的 TTL 而失去锁却不自知（§0.5 的原罪）——这时需要 fencing token，Part 6 会详细讲。<em>更稳妥的做法是根本不依赖分布式锁，而依赖数据库的唯一约束。</em></li>
+      <li><strong>可见性</strong>：如果读走从库，用户领完立刻刷新可能看到"未领取"（复制延迟）。需要"读己之写"保证——领取后的这次读走主库，或用会话粘性。</li>
+    </ol>
+    <p style="margin-bottom:0">如果你能自己想到 4 条以上，说明这一章已经内化了。</p></div></details>
+</section>
+
+<section id="s12">
+  <h2>Lab 0 · 动手实验</h2>
+  <p>代码在你本地的 <code>~/Code/distributed-systems-course/</code>，Go 和 Java 各一份，实现同一个东西：一个可配置的<strong>不可靠信道</strong>，以及跑在它上面的转账服务。</p>
+  <table>
+    <thead><tr><th style="width:24%">实验</th><th>你会亲手复现的现象</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Lab 0-1</strong><br>不可靠信道</td><td>丢包 / 延迟 / 乱序 / 重复四种网络恶行的模拟，以及超时的第三态。</td></tr>
+      <tr><td><strong>Lab 0-2</strong><br>at-most-once vs at-least-once</td><td>关掉重试会漏做，打开重试会重做——两条路都错，而且错得不一样。</td></tr>
+      <tr><td><strong>Lab 0-3</strong><br>幂等键修复</td><td>加上去重表后，无论重试多少次，账户余额都精确正确。</td></tr>
+      <tr><td><strong>Lab 0-4</strong><br>去重表分离的陷阱</td><td>故意把去重表和业务操作拆成两个非原子步骤，注入崩溃，观察"永久丢单"和"重复扣款"两种事故。</td></tr>
+    </tbody>
+  </table>
+  <p>运行方式（不需要任何第三方依赖，Go 1.21+ / JDK 17+ 即可）：</p>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab00
+go run .
+
+<span class="cm"># Java（JDK 单文件源码模式，无需 Maven/Gradle）</span>
+cd ~/Code/distributed-systems-course/java/lab00
+java Lab00.java
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完 Lab 0 后回来回答</div>
+    <p style="margin-bottom:0">把丢包率调到 0，Lab 0-2 的两种策略会不会有差异？把丢包率调到 50%、重试次数调到 10，无幂等的版本最多会重复扣几次？<em>先猜一个数，再跑出来对照。</em>猜错的地方就是你直觉里还需要修正的部分。</p>
+  </div>
+
+  <h3>下一章预告</h3>
+  <p><strong>Part 1 · 时间、顺序与因果。</strong>我们会从这一章的实验 3（时钟漂移）直接切入：既然物理时钟不可信，怎么才能正确地说"这件事发生在那件事之前"？答案是 Lamport 在 1978 年给出的 happens-before 关系——一个只用"消息收发"就能定义出因果顺序的绝妙构造。你会亲手实现 Lamport 时钟和向量时钟，并用后者检测出实验 3 里那次被静默丢弃的写入。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,txt){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(txt!=null)e.textContent=txt;return e;}
+function cv(n){return getComputedStyle(document.body).getPropertyValue(n).trim();}
+function clr(id){$("#"+id).innerHTML="";}
+
+/* ============ 主题 / 进度 / 目录 ============ */
+$("#tbtn").onclick=()=>{
+  const cur=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",cur==="dark"?"light":"dark");
+  draw1();draw3();draw7();
+};
+const secs=$$("main section"), links=$$("#toc a:not(.sub)");
+function onScroll(){
+  const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;
+  for(const s of secs){ if(s.getBoundingClientRect().top<=120) cur=s.id; }
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));
+}
+document.addEventListener("scroll",onScroll,{passive:true}); onScroll();
+
+/* ============ 工具 ============ */
+function fmtDown(min){
+  if(min<1/60) return "不到 1 秒";
+  if(min<1) return (min*60).toFixed(1)+" 秒";
+  if(min<60) return min.toFixed(1)+" 分钟";
+  if(min<1440) return (min/60).toFixed(1)+" 小时";
+  if(min<43200) return (min/1440).toFixed(1)+" 天";
+  return (min/43200).toFixed(1)+" 个月";
+}
+function fmtAvail(a){
+  const u=Math.max(0,1-a);
+  if(u<=0) return "100%";
+  if(u<1e-7) return ">99.99999%";
+  const d=Math.min(7,Math.max(2,Math.floor(-Math.log10(u))+1));
+  return parseFloat((a*100).toFixed(d))+"%";
+}
+function comb(n,k){let r=1;for(let i=0;i<k;i++)r=r*(n-i)/(i+1);return r;}
+
+/* ============ 实验 1 · 可用性计算器 ============ */
+const AV=[0.9,0.99,0.995,0.999,0.9995,0.9999,0.99999];
+const YEARMIN=365.25*24*60;
+function draw1(){
+  const p=AV[+$("#r1a").value], N=+$("#r1n").value;
+  $("#l1a").textContent=fmtAvail(p); $("#l1n").textContent=N;
+  const ser=Math.pow(p,N), par=1-Math.pow(1-p,N);
+  const k=Math.floor(N/2)+1; let q=0;
+  for(let i=k;i<=N;i++) q+=comb(N,i)*Math.pow(p,i)*Math.pow(1-p,N-i);
+  q=Math.min(1,Math.max(0,q));
+  const set=(idv,idu,a)=>{$("#"+idv).textContent=fmtAvail(a);$("#"+idu).textContent="年停机 "+fmtDown((1-a)*YEARMIN);};
+  set("v1s","u1s",ser); set("v1p","u1p",par); set("v1q","u1q",q);
+  $("#v1t").textContent=k+" / "+N;
+
+  const svg=$("#sv1"); svg.innerHTML="";
+  const W=640,PADL=86,PADR=26,TOP=16,BH=26,GAP=22;
+  const LO=-1.1, HI=5.75;                       // log10(分钟)
+  const x=v=>{const L=Math.log10(Math.max(v,Math.pow(10,LO)));
+    return PADL+(Math.min(Math.max(L,LO),HI)-LO)/(HI-LO)*(W-PADL-PADR);};
+  const ticks=[[1,"1分"],[60,"1时"],[1440,"1天"],[10080,"1周"],[43200,"1月"],[525960,"1年"]];
+  const baseY=TOP+3*(BH+GAP)-GAP+10;
+  ticks.forEach(t=>{
+    svg.appendChild(el("line",{x1:x(t[0]),y1:TOP-6,x2:x(t[0]),y2:baseY,stroke:cv("--grid"),"stroke-width":1}));
+    svg.appendChild(el("text",{x:x(t[0]),y:baseY+15,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},t[1]));
+  });
+  svg.appendChild(el("text",{x:W-PADR,y:baseY+31,fill:cv("--ink-3"),"font-size":10,"text-anchor":"end","font-family":cv("--sans")},"年停机时间（对数刻度）"));
+  const rows=[["串联",ser,cv("--s2")],["并联",par,cv("--s1")],["多数派",q,cv("--s3")]];
+  rows.forEach((r,i)=>{
+    const y=TOP+i*(BH+GAP), dm=Math.max((1-r[1])*YEARMIN,0.02), w=Math.max(x(dm)-PADL,3);
+    svg.appendChild(el("text",{x:PADL-12,y:y+BH/2+4,fill:cv("--ink-2"),"font-size":12,"text-anchor":"end","font-family":cv("--sans")},r[0]));
+    svg.appendChild(el("rect",{x:PADL,y:y,width:w,height:BH,rx:4,fill:r[2]}));
+    svg.appendChild(el("rect",{x:PADL,y:y,width:Math.min(w,4),height:BH,fill:r[2]}));
+    const lx=PADL+w+8;
+    svg.appendChild(el("text",{x:Math.min(lx,W-6),y:y+BH/2+4,fill:cv("--ink"),"font-size":11.5,
+      "text-anchor":lx>W-100?"end":"start","font-family":cv("--sans")},fmtDown((1-r[1])*YEARMIN)+" · "+fmtAvail(r[1])));
+  });
+}
+$("#r1a").oninput=draw1; $("#r1n").oninput=draw1; draw1();
+
+/* ============ 实验 2 · 不可靠网络沙盒 ============ */
+const CX=92, SX=548, MY=112;
+const S2={pk:[],biz:new Map(),next:1,total:0,ok:0,fail:0,exec:0,pulse:0,pulseC:0};
+function log2(msg,color){
+  const box=$("#lg2"); if(box.children.length===1&&box.children[0].classList.contains("tsp"))box.innerHTML="";
+  const d=document.createElement("div");
+  d.innerHTML='<span class="tsp">'+String(box.children.length+1).padStart(3,"0")+'</span>  '+
+    (color?'<span style="color:'+color+'">'+msg+'</span>':msg);
+  box.appendChild(d); box.scrollTop=box.scrollHeight;
+  while(box.children.length>300) box.removeChild(box.firstChild);
+}
+const p2=()=>({loss:+$("#r2d").value/100,lat:+$("#r2l").value,jit:+$("#r2j").value,to:+$("#r2t").value,retry:$("#c2r").checked});
+function lat2(){const c=p2();return Math.max(40,c.lat+(Math.random()*2-1)*c.jit);}
+function attempt(b){
+  const c=p2(), now=performance.now();
+  b.att++; b.deadline=now+c.to;
+  const lost=Math.random()<c.loss;
+  S2.pk.push({dir:1,t0:now,dur:lat2(),lost:lost,lossAt:0.25+Math.random()*0.5,biz:b.id,att:b.att});
+  log2("→ 请求 #"+b.id+" 第"+b.att+"次发出"+(c.retry?"":"（不重试模式）"));
+}
+function newBiz(){
+  const b={id:S2.next++,att:0,done:false,deadline:0}; S2.biz.set(b.id,b); S2.total++; attempt(b); upd2();
+}
+function upd2(){
+  $("#v2c").textContent=S2.total; $("#v2ok").textContent=S2.ok;
+  $("#v2f").textContent=S2.fail; $("#v2s").textContent=S2.exec;
+  const g=S2.exec-S2.ok;
+  const e=$("#v2gap"); e.textContent=(g>0?"+":"")+g;
+  e.style.color=g===0?cv("--ink"):(g>0?cv("--crit"):cv("--serious"));
+}
+function frame2(){
+  const now=performance.now(), c=p2(), svg=$("#sv2");
+  for(let i=S2.pk.length-1;i>=0;i--){
+    const p=S2.pk[i], pr=(now-p.t0)/p.dur;
+    if(p.lost&&pr>=p.lossAt){S2.pk.splice(i,1);log2("✗ "+(p.dir===1?"请求":"响应")+"包 #"+p.biz+" 在网络中丢失",cv("--serious"));continue;}
+    if(pr>=1){
+      S2.pk.splice(i,1);
+      if(p.dir===1){
+        S2.exec++; S2.pulse=now; S2.pulseC=cv("--warn");
+        log2("⚙ 服务器执行 #"+p.biz+"（第"+p.att+"次到达）· 累计执行 "+S2.exec+" 次",cv("--warn"));
+        S2.pk.push({dir:-1,t0:now+70,dur:lat2(),lost:Math.random()<c.loss,lossAt:0.25+Math.random()*0.5,biz:p.biz,att:p.att});
+      }else{
+        const b=S2.biz.get(p.biz);
+        if(b&&!b.done){b.done=true;S2.ok++;log2("✓ 客户端收到 #"+p.biz+" 的响应，认为成功",cv("--ok"));}
+        else log2("… #"+p.biz+" 的响应迟到，客户端早已放弃（这次执行成了幽灵）",cv("--serious"));
+      }
+      upd2();continue;
+    }
+  }
+  S2.biz.forEach(b=>{
+    if(!b.done&&b.deadline&&now>b.deadline){
+      if(c.retry&&b.att<4){log2("⏱ #"+b.id+" 第"+b.att+"次超时 → 重试",cv("--crit"));attempt(b);}
+      else{b.done=true;S2.fail++;log2("⏱ #"+b.id+" 超时，客户端放弃（但服务器可能已经执行过）",cv("--crit"));upd2();}
+    }
+  });
+  // 渲染
+  svg.innerHTML="";
+  svg.appendChild(el("line",{x1:CX,y1:MY,x2:SX,y2:MY,stroke:cv("--axis"),"stroke-width":2,"stroke-dasharray":"3 5"}));
+  const node=(x,label,sub,fill)=>{
+    svg.appendChild(el("circle",{cx:x,cy:MY,r:30,fill:cv("--surface"),stroke:fill,"stroke-width":2}));
+    svg.appendChild(el("text",{x:x,y:MY+5,fill:cv("--ink"),"font-size":12.5,"text-anchor":"middle","font-weight":600,"font-family":cv("--sans")},label));
+    svg.appendChild(el("text",{x:x,y:MY+50,fill:cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},sub));
+  };
+  const pulsing=now-S2.pulse<260;
+  node(CX,"客户端","以为成功 "+S2.ok+" 次",cv("--s1"));
+  node(SX,"服务器","实际执行 "+S2.exec+" 次",pulsing?cv("--warn"):cv("--s3"));
+  if(pulsing){const r=30+(now-S2.pulse)/260*22;
+    svg.appendChild(el("circle",{cx:SX,cy:MY,r:r,fill:"none",stroke:cv("--warn"),"stroke-width":2,opacity:1-(now-S2.pulse)/260}));}
+  svg.appendChild(el("text",{x:(CX+SX)/2,y:26,fill:cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},
+    "不可靠信道 · 丢包 "+Math.round(c.loss*100)+"% · 延迟 "+c.lat+"±"+c.jit+"ms · 超时 "+c.to+"ms"));
+  S2.pk.forEach(p=>{
+    const pr=(now-p.t0)/p.dur; if(pr<0)return;
+    const t=Math.min(pr,1), x=p.dir===1?CX+(SX-CX)*t:SX-(SX-CX)*t;
+    const y=MY+(p.dir===1?-1:1)*24;
+    const col=p.dir===1?cv("--s1"):cv("--ok");
+    const dying=p.lost&&pr>p.lossAt-0.12;
+    svg.appendChild(el("circle",{cx:x,cy:y,r:dying?9:7,fill:dying?cv("--serious"):col,
+      stroke:cv("--surface"),"stroke-width":2,opacity:dying?0.65:1}));
+    svg.appendChild(el("text",{x:x,y:y+(p.dir===1?-13:20),fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--mono")},"#"+p.biz));
+  });
+  requestAnimationFrame(frame2);
+}
+["r2d","r2l","r2j","r2t"].forEach(id=>{
+  const lab={r2d:["l2d","%"],r2l:["l2l","ms"],r2j:["l2j","ms"],r2t:["l2t","ms"]}[id];
+  const f=()=>$("#"+lab[0]).textContent=$("#"+id).value+lab[1];
+  $("#"+id).oninput=f; f();
+});
+$("#b2one").onclick=newBiz;
+$("#b2ten").onclick=()=>{for(let i=0;i<20;i++)setTimeout(newBiz,i*170);};
+$("#b2reset").onclick=()=>{S2.pk=[];S2.biz.clear();S2.next=1;S2.total=S2.ok=S2.fail=S2.exec=0;
+  $("#lg2").innerHTML='<div class="tsp">— 已重置 —</div>';upd2();};
+upd2(); requestAnimationFrame(frame2);
+
+/* ============ 实验 3 · 时钟漂移 ============ */
+const S3={t0:performance.now(),run:false,off:{A:0,B:0,C:0},ev:[],n:0,last:performance.now()};
+const NODES=[["A","--s1"],["B","--s3"],["C","--s7"]];
+function drift(k){return +$("#r3"+k.toLowerCase()).value;}
+function trueMs(){return S3.elapsed||0;}
+function clockOf(k){return trueMs()*(1+drift(k)/1000)+S3.off[k];}
+function fmtClk(ms){const s=ms/1000;const m=Math.floor(Math.abs(s)/60),r=Math.abs(s)%60;
+  return (s<0?"-":"")+String(m).padStart(2,"0")+":"+r.toFixed(2).padStart(5,"0");}
+function draw3(){
+  const svg=$("#sv3"); svg.innerHTML="";
+  const W=640,PADL=104,PADR=110,y0=30,dy=40, half=(W-PADL-PADR)/2, mid=PADL+half;
+  const MAXDEV=4000;
+  svg.appendChild(el("text",{x:PADL-14,y:14,fill:cv("--ink-3"),"font-size":10,"text-anchor":"end","font-family":cv("--sans")},"节点"));
+  svg.appendChild(el("text",{x:mid,y:14,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},"← 慢 ｜ 与真实时间的偏差 ｜ 快 →"));
+  svg.appendChild(el("text",{x:W-PADR+12,y:14,fill:cv("--ink-3"),"font-size":10,"font-family":cv("--sans")},"本地时钟"));
+  svg.appendChild(el("line",{x1:mid,y1:y0-12,x2:mid,y2:y0+2*dy+16,stroke:cv("--axis"),"stroke-width":1}));
+  NODES.forEach((nd,i)=>{
+    const k=nd[0], col=cv(nd[1]), y=y0+i*dy, dev=clockOf(k)-trueMs();
+    const w=Math.max(-half,Math.min(half,dev/MAXDEV*half));
+    svg.appendChild(el("circle",{cx:PADL-58,cy:y,r:9,fill:col}));
+    svg.appendChild(el("text",{x:PADL-58,y:y+4,fill:"#fff","font-size":11,"text-anchor":"middle","font-weight":700,"font-family":cv("--sans")},k));
+    svg.appendChild(el("text",{x:PADL-40,y:y+4,fill:cv("--ink-2"),"font-size":11.5,"font-family":cv("--sans")},(drift(k)>0?"+":"")+drift(k)+"ms/s"));
+    svg.appendChild(el("rect",{x:w>=0?mid:mid+w,y:y-8,width:Math.max(Math.abs(w),2),height:16,rx:4,fill:col,opacity:.85}));
+    svg.appendChild(el("text",{x:W-PADR+12,y:y+4,fill:cv("--ink"),"font-size":12,"font-family":cv("--mono")},fmtClk(clockOf(k))));
+    svg.appendChild(el("text",{x:W-PADR+12,y:y+16,fill:dev>0?cv("--warn"):cv("--ink-3"),"font-size":9.5,"font-family":cv("--mono")},(dev>=0?"+":"")+Math.round(dev)+"ms"));
+  });
+  svg.appendChild(el("text",{x:PADL-58,y:y0+2*dy+30,fill:cv("--ink-3"),"font-size":10.5,"text-anchor":"middle","font-family":cv("--sans")},"真实"));
+  svg.appendChild(el("text",{x:PADL-40,y:y0+2*dy+30,fill:cv("--ink-2"),"font-size":11.5,"font-family":cv("--mono")},fmtClk(trueMs())+"  （上帝视角，节点看不到）"));
+}
+function tick3(){
+  const now=performance.now();
+  if(S3.run) S3.elapsed=(S3.elapsed||0)+(now-S3.last);   // 1:1 真实速度
+  S3.last=now; draw3(); requestAnimationFrame(tick3);
+}
+function table3(){
+  const box=$("#tb3");
+  if(!S3.ev.length){box.innerHTML='<p style="font-size:13px;color:var(--ink-3);margin:0">还没有事件。让时钟走 20 秒左右，然后<strong>快速依次</strong>点 A → B → C 各产生一个事件。</p>';return;}
+  const byStamp=S3.ev.slice().sort((a,b)=>a.stamp-b.stamp);
+  const rank=new Map(); byStamp.forEach((e,i)=>rank.set(e.i,i+1));
+  let bad=0;
+  let h='<table><thead><tr><th>真实顺序</th><th>节点</th><th>真实时刻（上帝视角）</th><th>该节点打的时间戳</th><th>按时间戳排序后的名次</th></tr></thead><tbody>';
+  S3.ev.forEach((e,i)=>{
+    const r=rank.get(e.i), off=r!==i+1; if(off)bad++;
+    h+='<tr'+(off?' style="background:color-mix(in srgb,var(--crit) 13%,transparent)"':'')+'>'+
+      '<td><strong>#'+(i+1)+'</strong></td>'+
+      '<td><span class="dot" style="display:inline-block;background:'+cv(NODES.find(n=>n[0]===e.node)[1])+'"></span> '+e.node+'</td>'+
+      '<td style="font-family:var(--mono)">'+fmtClk(e.real)+'</td>'+
+      '<td style="font-family:var(--mono)">'+fmtClk(e.stamp)+'</td>'+
+      '<td'+(off?' style="color:var(--crit);font-weight:700"':'')+'>第 '+r+' 名'+(off?' ⟵ 因果倒置！':'')+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  h+='<p style="font-size:13px;margin:8px 0 0;color:'+(bad?'var(--crit)':'var(--ok)')+'">'+
+     (bad?'⚠ 有 '+bad+' 个事件的时间戳顺序与真实发生顺序不符。如果用「时间戳大者胜」做冲突解决，这里就会静默丢数据。'
+         :'✓ 目前时间戳顺序与真实顺序一致。把漂移调大一些，或者让时钟多走一会儿再试。')+'</p>';
+  box.innerHTML=h;
+}
+["a","b","c"].forEach(k=>{
+  const f=()=>{$("#l3"+k).textContent=(drift(k.toUpperCase())>0?"+":"")+drift(k.toUpperCase())+" ms/s";draw3();};
+  $("#r3"+k).oninput=f; f();
+});
+$("#b3run").onclick=e=>{S3.run=!S3.run;e.target.textContent=S3.run?"暂停":"运行 / 暂停";};
+["A","B","C"].forEach(k=>{
+  $("#b3e"+k.toLowerCase()).onclick=()=>{
+    S3.ev.push({i:S3.n++,node:k,real:trueMs(),stamp:clockOf(k)}); table3();
+  };
+});
+$("#b3ntp").onclick=()=>{["A","B","C"].forEach(k=>{S3.off[k]=trueMs()-(trueMs()*(1+drift(k)/1000));});draw3();};
+$("#b3clr").onclick=()=>{S3.ev=[];S3.n=0;table3();};
+table3(); requestAnimationFrame(tick3);
+
+/* ============ 实验 4 · 你来判决 ============ */
+const S4={n:0,c:0,truth:-1};
+const TRUTHS=[
+ ["① 请求根本没到，钱没扣",cv("--ok"),
+  "请求包在网络中丢失，服务器<strong>从未收到</strong>。账户余额没变。<br><em>此时重试是安全且必要的</em>——不重试就漏了这笔业务。"],
+ ["② 请求到了，服务器还在执行",cv("--warn"),
+  "服务器收到了请求，但正在经历一次长 GC 停顿 / 磁盘 IO 抖动。你超时的那一刻它还在跑，之后<strong>会扣款成功</strong>。<br><em>此时重试会导致扣两次</em>。"],
+ ["③ 已经扣成功了，响应包丢了",cv("--crit"),
+  "服务器<strong>已经完成扣款</strong>，只是返回途中的响应包丢失。<br><em>此时重试会导致扣两次；而不重试，用户会看到「失败」但钱其实已经扣了</em>——这就是「幽灵成功」。"]
+];
+function next4(){
+  S4.truth=Math.floor(Math.random()*3);
+  $("#q4to").textContent=[800,1200,2000,3000][Math.floor(Math.random()*4)];
+  $("#q4box").style.display=""; $("#r4box").style.display="none";
+}
+$$("#q4box button").forEach(b=>b.onclick=()=>{
+  const g=+b.dataset.g, right=g===S4.truth; S4.n++; if(right)S4.c++;
+  $("#v4n").textContent=S4.n; $("#v4c").textContent=S4.c;
+  $("#v4p").textContent=Math.round(S4.c/S4.n*100)+"%";
+  const t=TRUTHS[S4.truth];
+  $("#q4box").style.display="none";
+  const r=$("#r4box"); r.style.display="";
+  r.innerHTML='<div class="note '+(right?"ok":"crit")+'" style="margin-top:0">'+
+    '<div class="note-h"><span class="dot" style="background:'+(right?cv("--ok"):cv("--crit"))+'"></span>'+
+    (right?"猜对了 —— 但那是运气":"猜错了 —— 不怪你")+'</div>'+
+    '<p style="margin-bottom:0"><strong>真相是 '+t[0]+'</strong><br>'+t[2]+'</p></div>'+
+    '<div class="ctrl"><button class="primary" id="b4n">下一轮</button></div>';
+  $("#b4n").onclick=next4;
+  if(S4.n>=8){$("#n4").querySelector(".note-h").innerHTML=
+    '<span class="dot" style="background:var(--s1)"></span>你已经玩了 '+S4.n+' 轮，现在读这里';}
+});
+next4();
+
+/* ============ 实验 5 · 重试地狱 vs 幂等键 ============ */
+function log5(m,c){const b=$("#lg5");if(b.children.length===1&&b.children[0].classList.contains("tsp"))b.innerHTML="";
+  const d=document.createElement("div");d.innerHTML=c?'<span style="color:'+c+'">'+m+'</span>':m;
+  b.appendChild(d);b.scrollTop=b.scrollHeight;}
+function run5(){
+  const loss=+$("#r5d").value/100, maxR=+$("#r5r").value, N=+$("#r5n").value;
+  $("#lg5").innerHTML="";
+  let aDed=0,bDed=0,aOk=0,bOk=0,dupA=0,missA=0,missB=0;
+  for(let i=1;i<=N;i++){
+    let delivered=0, clientOk=false, bDone=false;
+    for(let att=0;att<=maxR;att++){
+      const reqOk=Math.random()>=loss;
+      if(reqOk){
+        delivered++;
+        aDed+=100;                       // A 组：每次到达都扣一次
+        if(!bDone){bDed+=100;bDone=true;} // B 组：幂等键命中则跳过副作用
+        const respOk=Math.random()>=loss;
+        if(respOk){clientOk=true;break;}
+      }
+    }
+    if(clientOk){aOk++;bOk++;}
+    if(delivered>1)dupA++;
+    if(delivered===0){missA++;missB++;}
+    const tag="转账 #"+String(i).padStart(2,"0");
+    if(delivered===0) log5(tag+" · 请求 "+(maxR+1)+" 次全部丢失 → 两组都漏扣 100 元",cv("--serious"));
+    else if(delivered>1) log5(tag+" · 请求送达 "+delivered+" 次 → A 组扣了 "+delivered*100+" 元，B 组扣了 100 元",cv("--crit"));
+    else log5(tag+" · 正常，两组各扣 100 元",cv("--ink-3"));
+  }
+  const exp=N*100;
+  const put=(p,ded)=>{
+    $("#v5"+p+"e").textContent=exp; $("#v5"+p+"a").textContent=ded;
+    const d=ded-exp; const e=$("#v5"+p+"d");
+    e.textContent=(d>0?"+":"")+d;
+    e.style.color=d===0?cv("--ok"):(d>0?cv("--crit"):cv("--serious"));
+  };
+  put("a",aDed); put("b",bDed);
+  log5("──────────",cv("--ink-3"));
+  log5("A 组（无幂等）："+dupA+" 笔发生重复扣款，"+missA+" 笔漏扣。差额 "+(aDed-exp)+" 元。",cv("--crit"));
+  log5("B 组（有幂等）：0 笔重复扣款，"+missB+" 笔漏扣（请求全丢，服务器根本没收到）。差额 "+(bDed-exp)+" 元。",cv("--ok"));
+  if(missB>0) log5("提示：B 组剩下的差额只能靠「加大重试次数」压低，靠幂等无法消除——因为服务器压根没收到过。",cv("--ink-3"));
+}
+["d","r","n"].forEach(k=>{const f=()=>$("#l5"+k).textContent=$("#r5"+k).value+(k==="d"?"%":"");$("#r5"+k).oninput=f;f();});
+$("#b5run").onclick=run5;
+$("#b5clr").onclick=()=>{$("#lg5").innerHTML='<div class="tsp">— 已清空 —</div>';
+  ["a","b"].forEach(p=>["e","a","d"].forEach(s=>$("#v5"+p+s).textContent="0"));};
+
+/* ============ 实验 7 · 两将军 ============ */
+const S7={msgs:[],anim:0};
+function draw7(){
+  const svg=$("#sv7"); svg.innerHTML="";
+  const W=640,AX=80,BX=560,Y=62;
+  svg.appendChild(el("rect",{x:190,y:24,width:260,height:76,rx:8,fill:cv("--surface-2"),stroke:cv("--border")}));
+  svg.appendChild(el("text",{x:320,y:56,fill:cv("--ink-3"),"font-size":11.5,"text-anchor":"middle","font-family":cv("--sans")},"敌军占领的山谷"));
+  svg.appendChild(el("text",{x:320,y:74,fill:cv("--ink-3"),"font-size":10.5,"text-anchor":"middle","font-family":cv("--sans")},"信使可能被抓 → 消息可能丢失"));
+  [[AX,"A","--s1"],[BX,"B","--s3"]].forEach(g=>{
+    svg.appendChild(el("circle",{cx:g[0],cy:Y,r:26,fill:cv("--surface"),stroke:cv(g[2]),"stroke-width":2}));
+    svg.appendChild(el("text",{x:g[0],y:Y+5,fill:cv("--ink"),"font-size":13,"text-anchor":"middle","font-weight":700,"font-family":cv("--sans")},"将军"+g[1]));
+    svg.appendChild(el("text",{x:g[0],y:Y+46,fill:cv("--crit"),"font-size":10.5,"text-anchor":"middle","font-family":cv("--sans")},"敢进攻？否"));
+  });
+  const n=S7.msgs.length;
+  if(n){
+    const last=S7.msgs[n-1], fwd=last.from==="A";
+    const x1=fwd?AX+30:BX-30, x2=fwd?BX-30:AX+30;
+    svg.appendChild(el("line",{x1:x1,y1:Y-38,x2:x2,y2:Y-38,stroke:cv("--s4"),"stroke-width":2,"marker-end":"url(#ar)"}));
+    const defs=el("defs",{}),m=el("marker",{id:"ar",viewBox:"0 0 10 10",refX:8,refY:5,markerWidth:5,markerHeight:5,orient:"auto"});
+    m.appendChild(el("path",{d:"M0,0 L10,5 L0,10 z",fill:cv("--s4")})); defs.appendChild(m); svg.appendChild(defs);
+    svg.appendChild(el("text",{x:320,y:Y-46,fill:cv("--ink-2"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},
+      "第 "+n+" 条消息："+last.from+" → "+(fwd?"B":"A")+"　"+last.label));
+  }else{
+    svg.appendChild(el("text",{x:320,y:Y-42,fill:cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},"还没有人发出消息"));
+  }
+}
+function know7(){
+  const box=$("#k7"), n=S7.msgs.length;
+  if(!n){box.innerHTML='<p style="font-size:13px;color:var(--ink-3);margin:0">点「再发一次确认」，让 A 先把「凌晨 4 点进攻」发给 B。</p>';return;}
+  let h='<div class="card" style="margin:0"><div class="card-t">知识层级（假设每条消息都幸运地送达了）</div><ol style="margin:0;font-size:13.5px">';
+  let chain="『凌晨 4 点进攻』";
+  for(let i=0;i<n;i++){
+    const recv=i%2===0?"B":"A";
+    chain=recv+" 知道 "+chain;
+    h+='<li style="margin:4px 0">'+chain+'</li>';
+  }
+  h+='</ol>';
+  const lastSender=S7.msgs[n-1].from;
+  h+='<p style="margin:12px 0 0;color:var(--crit);font-size:13.5px"><strong>但是：</strong>将军 '+lastSender+
+     ' 不知道第 '+n+' 条消息是否送达。如果它其实丢了，'+(lastSender==="A"?"B":"A")+
+     ' 就不会按新的认知行动。所以将军 '+lastSender+' <strong>依然不敢进攻</strong>，需要再发一条确认……</p></div>';
+  box.innerHTML=h;
+}
+function send7(){
+  const n=S7.msgs.length;
+  const from=n%2===0?"A":"B";
+  const label=n===0?"『凌晨 4 点进攻』":"确认 ×"+n;
+  S7.msgs.push({from:from,label:label}); draw7(); know7();
+}
+$("#b7send").onclick=send7;
+$("#b7auto").onclick=()=>{for(let i=0;i<8;i++)setTimeout(send7,i*280);};
+$("#b7clr").onclick=()=>{S7.msgs=[];draw7();know7();};
+draw7(); know7();
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

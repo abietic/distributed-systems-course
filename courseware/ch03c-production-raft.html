@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 3-C · 持久化、快照、成员变更与线性一致读</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+.scen{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.scen button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.axm{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:10px 0}
+.axm .b{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--s1);
+  width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px}
+.ladder{display:grid;gap:6px;margin:16px 0}
+.lrung{display:grid;grid-template-columns:168px 1fr;gap:14px;align-items:start;padding:11px 15px;
+  background:var(--surface);border:1px solid var(--border);border-radius:9px}
+.lrung .nm{font-weight:660;color:var(--ink);font-size:14px}
+.lrung .en{font-size:11px;color:var(--ink-3);font-family:var(--mono)}
+.lrung .de{font-size:13.5px;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.two,.three{grid-template-columns:1fr}}
+.grid-wrap{overflow-x:auto}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 3-C</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：还差四件事</a>
+    <a href="#s1">3.18 必须落盘的三样东西</a>
+    <a href="#s1" class="sub">▸ 实验：崩溃重启</a>
+    <a href="#s2">3.19 日志压缩与快照</a>
+    <a href="#s3">3.20 成员变更</a>
+    <a href="#s3" class="sub">▸ 实验：变更裂脑模拟</a>
+    <a href="#s4">3.21 线性一致读</a>
+    <a href="#s4" class="sub">▸ 实验：三种读对照</a>
+    <a href="#s5">3.22 Raft 完整规则表</a>
+    <a href="#s6">3.23 自测题（10 题）</a>
+    <a href="#s7">Lab 3-C · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 3-C · Persistence, Snapshots, Membership &amp; Linearizable Reads</div>
+  <h1>把 Raft 从"能跑"推到"能上生产"</h1>
+  <p class="lead">3-A 讲完选举，3-B 讲完日志复制和安全性证明——到这里 Raft 的<em>算法</em>已经完整了。但离能上生产还差四件事，而这四件事里有三件都能独立地把你之前挣来的安全性重新弄丢。</p>
+
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--crit)"><div><div class="nm">① 持久化</div><div class="en">persistence</div></div>
+      <div class="de">节点会重启。<strong>如果它忘了自己投过谁的票，选举安全性当场破产。</strong>哪三样必须落盘，为什么恰好是这三样。</div></div>
+    <div class="lrung" style="border-color:var(--s3)"><div><div class="nm">② 快照</div><div class="en">snapshot</div></div>
+      <div class="de">日志不能无限增长。怎么截断，截断之后 <code>prevLogIndex</code> 检查怎么办，落后太多的 follower 怎么追。</div></div>
+    <div class="lrung" style="border-color:var(--warn)"><div><div class="nm">③ 成员变更</div><div class="en">membership change</div></div>
+      <div class="de">要能在线增减节点。<strong>做错了会在同一任期选出两个 Leader</strong>——你上一轮已经推出了为什么。</div></div>
+    <div class="lrung" style="border-color:var(--s1)"><div><div class="nm">④ 线性一致读</div><div class="en">linearizable read</div></div>
+      <div class="de">最容易被忽略的一件。<strong>"用了 Raft 所以读一定是最新的"是错的</strong>——3-A 那个僵尸 Leader 的真正解法在这里。</div></div>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>3.18 必须落盘的三样东西</h2>
+  <p>Raft 论文 Figure 2 把节点状态分成两类。<strong>持久化的只有三样</strong>，而且必须在响应任何 RPC <u>之前</u>写入稳定存储：</p>
+  <table>
+    <thead><tr><th style="width:20%">状态</th><th style="width:30%">是什么</th><th>不持久化会破坏哪条安全性</th></tr></thead>
+    <tbody>
+      <tr><td><code>currentTerm</code></td><td>本节点见过的最大任期</td><td>重启后任期归零，无法识别过时的 Leader 和 candidate；配合下一行会直接导致双主。</td></tr>
+      <tr><td><code>votedFor</code><br><span class="tag" style="border-color:var(--crit);color:var(--crit)">最容易漏</span></td><td>本任期把票投给了谁</td><td><strong>选举安全性。</strong>节点重启后"忘了"自己投过票，可以在<u>同一任期</u>再投一次 ⇒ 两个 candidate 各自凑齐过半 ⇒ <strong>同一任期两个 Leader ⇒ 脑裂</strong>。这就是 Lab 3A-4 演示过的那个场景，只不过触发方式从"改代码"变成了"重启一下"。</td></tr>
+      <tr><td><code>log[]</code></td><td>全部日志条目</td><td><strong>Leader 完整性。</strong>一个曾经持有某条已提交日志的节点重启后把它弄丢了，那条日志的"过半"就名存实亡，后续选举可能选出不含它的 Leader ⇒ 已提交数据消失。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>反过来说：commitIndex 不需要持久化</div>
+    <p style="margin-bottom:0"><code>commitIndex</code> 和 <code>lastApplied</code> 都是<strong>易失的</strong>。节点重启后把它们置 0 是安全的——Leader 发来的 <code>AppendEntries.leaderCommit</code> 会立刻把 <code>commitIndex</code> 重新推上去，状态机重放一遍日志即可。<br>
+    <em>为什么可以这样？</em>因为 commitIndex 是一个<strong>可推导</strong>的结论，而 <code>votedFor</code> 是一个<strong>不可推导的承诺</strong>——你对外许下的诺言，除了自己记着没有别的办法找回来。<br>
+    <span style="color:var(--ink-3)">（有了快照之后 <code>lastApplied</code> 需要从快照的 <code>lastIncludedIndex</code> 恢复，那是 §3.19 的事，性质上仍然是"可推导"。）</span></p>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>补充 · 上面这段只对「内存状态机」成立</div>
+    <p style="margin-bottom:0">论文模型里状态机在内存中，重启后清空、从日志重放，所以 <code>lastApplied</code> 置 0 是安全的。<br>
+    但真实系统的状态机本身是<strong>持久化</strong>的（etcd 用 bbolt，TiKV 用 RocksDB）：重启时里面已经有 apply 过的数据。这时再从 0 重放，<code>INCR</code> 这类非幂等命令就会被执行两次。<br>
+    所以它们把 applied index <strong>和数据在同一个存储事务里一起写下</strong>——etcd 把它叫 <code>consistent_index</code>，存在 bbolt 的 Meta bucket 里，和 apply 的修改走同一个后端事务；重启后从它之后继续 apply。<br>
+    <em>状态机一旦持久化，applied index 就从「可推导的结论」变成了「状态机的一部分」</em>——判断标准还是那一条：它能不能从别处推出来？对内存状态机能，对持久化状态机不能。</p>
+  </div>
+
+  <h3>fsync：算法之下的那层地基</h3>
+  <p>3-B 的自测题 9 提过一句，这里展开。Raft 的正确性证明依赖一个前提：<em>写进"稳定存储"的东西不会丢</em>。而现实里这个前提比想象中脆弱：</p>
+  <ul>
+    <li><code>write()</code> 返回只代表数据进了 page cache，<strong>断电就没了</strong>。必须 <code>fsync()</code>。</li>
+    <li>某些磁盘固件、虚拟化层、云盘缓存会<strong>对 fsync 说谎</strong>（返回成功但数据还在易失缓存里）。</li>
+    <li>fsync 很慢。每条日志一次 fsync，吞吐会掉到几百 TPS。</li>
+  </ul>
+  <p>工程上的正解是<strong>批量 fsync</strong>：攒一批日志一起刷，刷完再统一回复。吞吐提上去了，而"回复之前已落盘"这个语义没破。<em>绝不能</em>用"关掉 fsync"来提速——那等于把算法的地基抽掉，而算法本身察觉不到。</p>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>Jepsen 测出的很多"共识系统丢数据"，根因都在这一层</div>
+    <p style="margin-bottom:0">算法是对的，证明也是对的，只是它站的地基不是它以为的那个。<strong>验证一个系统，必须连它的假设一起验证</strong>——这是 Part 6 混沌工程那一章的主题。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 崩溃重启：漏掉一样会怎样</div><div class="s">分别丢掉三样状态中的一样，看哪条安全性倒下</div></div>
+    <div class="lab-b">
+      <div class="scen" id="sc1">
+        <button data-s="0" class="act">全部持久化（正确）</button>
+        <button data-s="1">丢失 votedFor</button>
+        <button data-s="2">丢失 currentTerm</button>
+        <button data-s="3">丢失 log[]</button>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b1step">下一步 ▸</button>
+        <button id="b1auto">自动播放</button>
+        <button id="b1reset">重来</button>
+      </div>
+      <div class="stage grid-wrap" style="padding:14px"><svg id="sv1" viewBox="0 0 740 250" style="width:100%;min-width:680px;height:auto;display:block"></svg></div>
+      <div id="o1" style="margin-top:14px"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>3.19 日志压缩与快照</h2>
+  <p>一个跑了三个月的集群，日志可能有几十亿条。问题很直白：磁盘装不下，重启后重放要几小时，新节点加入要传几 TB。<strong>解法是快照</strong>——把状态机在某个 index 上的完整镜像存下来，然后把那之前的日志全部丢掉。</p>
+
+  <div class="two">
+    <div class="card" style="border-color:var(--s3)">
+      <div class="card-t" style="color:var(--s3)">快照里存什么</div>
+      <ul style="margin-bottom:0;font-size:13.5px">
+        <li><strong>状态机的完整镜像</strong>（比如整个 KV map）</li>
+        <li><code>lastIncludedIndex</code>：这个快照覆盖到哪一条日志</li>
+        <li><code>lastIncludedTerm</code>：那条日志的 term</li>
+        <li>当前的<strong>集群成员配置</strong>（§3.20 会讲为什么必须存它）</li>
+      </ul>
+    </div>
+    <div class="card" style="border-color:var(--warn)">
+      <div class="card-t" style="color:var(--warn)">为什么必须存后两个字段</div>
+      <p style="margin-bottom:0;font-size:13.5px">因为 <code>AppendEntries</code> 的一致性检查要比较 <code>prevLogIndex/prevLogTerm</code>。日志被截断后，那个位置可能已经不在日志里了——<br>
+      <strong><code>(lastIncludedIndex, lastIncludedTerm)</code> 就是被截断部分的"代表"</strong>，让日志匹配性质在截断之后依然成立。</p>
+    </div>
+  </div>
+
+  <h3>InstallSnapshot：当 follower 落后太多</h3>
+  <p>Leader 想给某个 follower 发 <code>nextIndex = 500</code> 处的日志，却发现自己已经把 500 之前的日志压缩掉了。这时它改发 <code>InstallSnapshot</code>：</p>
+<pre><code>InstallSnapshot(
+    term, leaderId,
+    <span class="fn">lastIncludedIndex</span>, <span class="fn">lastIncludedTerm</span>,
+    offset, data[], done      <span class="cm">// 快照通常很大，分块传</span>
+)
+</code></pre>
+  <p>Follower 收到后：丢弃自己全部日志（或保留 <code>lastIncludedIndex</code> 之后仍然匹配的部分），用快照重置状态机，把 <code>lastApplied</code> 和 <code>commitIndex</code> 设为 <code>lastIncludedIndex</code>。</p>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>三个容易踩的坑</div>
+    <p style="margin-bottom:0"><strong>① 快照是"落后的补救"，不是常规路径。</strong>正常情况下 follower 靠 AppendEntries 增量追赶，只有落后超出已压缩范围才走 InstallSnapshot。如果你发现集群频繁 InstallSnapshot，说明有节点长期跟不上——那是个需要排查的信号，不是正常现象。<br>
+    <strong>② 别在快照期间阻塞写入。</strong>朴素实现会 stop-the-world 序列化整个状态机。工业做法是写时复制（COW）或让状态机自带快照能力（RocksDB 的 checkpoint）。<br>
+    <strong>③ 快照必须包含成员配置。</strong>否则节点从快照恢复后不知道集群里有谁，无法参与选举。</p>
+  </div>
+</section>
+<section id="s3">
+  <h2>3.20 成员变更：你已经推出了核心</h2>
+  <p>集群要能在线增减节点：扩容、缩容、换掉一台坏机器。难点在于<strong>配置切换不是原子的</strong>——不同节点在不同时刻切换到新配置，中间那段时间集群里同时存在两种"过半"的定义。</p>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>判据不是"过半的数量变了吗"，而是"两个过半集合会不会不相交"</div>
+    <p style="margin-bottom:0">Raft 全部安全性的地基是<em>任意两个过半集合必相交</em>。只要存在一个<strong>旧配置的过半集合</strong>和一个<strong>新配置的过半集合</strong>互不相交，它们就能在同一任期各自选出 Leader ⇒ <strong>脑裂</strong>。</p>
+  </div>
+
+  <h3>为什么直接跳 3 → 5 会裂脑</h3>
+  <div class="two">
+    <div class="card" style="border-color:var(--crit)">
+      <div class="card-t" style="color:var(--crit)">危险：C_old={A,B,C} → C_new={A,B,C,D,E}</div>
+      <p style="font-size:13.5px">旧过半取 <strong>{A,B}</strong>（2 个够），新过半取 <strong>{C,D,E}</strong>（3 个够）。<br>
+      <strong style="color:var(--crit)">这两组不相交。</strong>如果 A、B 还没切配置而 C、D、E 已经切了，两边都认为自己凑齐了过半。</p>
+      <p style="margin-bottom:0;font-size:13.5px;font-family:var(--mono)">maj_old + maj_new = 2 + 3 = 5<br>|C_old ∪ C_new| = 5<br><span style="color:var(--crit)">5 &gt; 5 ✗ 不成立 ⇒ 可以不相交</span></p>
+    </div>
+    <div class="card" style="border-color:var(--ok)">
+      <div class="card-t" style="color:var(--ok)">安全：C_old={A,B,C} → C_new={A,B,C,D}</div>
+      <p style="font-size:13.5px">旧过半要 2 个，新过半要 3 个，一共要 5 个不同的节点——<strong>但并集里只有 4 个</strong>。<br>
+      <strong style="color:var(--ok)">鸽笼原理，必有重叠。</strong>你想凑都凑不出两个不相交的集合。</p>
+      <p style="margin-bottom:0;font-size:13.5px;font-family:var(--mono)">maj_old + maj_new = 2 + 3 = 5<br>|C_old ∪ C_new| = 4<br><span style="color:var(--ok)">5 &gt; 4 ✓ 成立 ⇒ 必然相交</span></p>
+    </div>
+  </div>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>单节点变更的一般证明（两行）</div>
+    <p style="margin-bottom:0">设旧集群 <code>n</code> 个节点，<strong>加一个</strong>变成 <code>n+1</code>：</p>
+    <pre style="margin:10px 0 0"><code>maj_old + maj_new = (⌊n/2⌋+1) + (⌊(n+1)/2⌋+1) = n + 2
+|C_old ∪ C_new|   = n + 1
+                    n + 2 &gt; n + 1   ✓ 恒成立</code></pre>
+    <p style="margin:10px 0 0"><strong>减一个</strong>同理（和为 <code>n+1</code>，并集为 <code>n</code>）。<br>
+    所以「一次只动一个节点」不是工程上的谨慎习惯，<em>是一条可以证明的充分条件</em>。跳两格时等号刚好不成立，缝就开了。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · 成员变更裂脑模拟</div><div class="s">本节核心 · 亲手把两个不相交的过半集合摆出来</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>旧集群规模 <b id="l2o">3</b></label><input type="range" id="r2o" min="1" max="7" step="1" value="3"></div>
+        <div class="f"><label>新集群规模 <b id="l2n">5</b></label><input type="range" id="r2n" min="1" max="9" step="1" value="5"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button id="b2a">3 → 5（危险）</button>
+        <button id="b2b">3 → 4（安全）</button>
+        <button id="b2c">5 → 3（缩容）</button>
+        <button id="b2d">3 → 7</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv2" viewBox="0 0 720 220" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="stats" id="st2"></div>
+      <div id="o2" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <h3>两种做法：联合共识 vs 单节点变更</h3>
+  <div class="two">
+    <div class="card" style="border-color:var(--s7)">
+      <div class="card-t" style="color:var(--s7)">联合共识 joint consensus</div>
+      <p style="font-size:13.5px">论文最初的方案。引入一个过渡配置 <code>C_old,new</code>，在它生效期间，<strong>任何决定都必须同时得到旧配置的过半和新配置的过半</strong>。</p>
+      <p style="font-size:13.5px;margin-bottom:0">分三步：<code>C_old</code> → 提交 <code>C_old,new</code> → 提交 <code>C_new</code>。<br>
+      <span style="color:var(--ink-3)">好处：可以一次换掉任意多个节点。代价：实现复杂，要处理两个配置并存的所有边界。</span></p>
+    </div>
+    <div class="card" style="border-color:var(--ok)">
+      <div class="card-t" style="color:var(--ok)">单节点变更 single-server change</div>
+      <p style="font-size:13.5px">Ongaro 博士论文里的简化方案：<strong>一次只加或只减一个节点</strong>，靠上面那个交集性质保证安全，不需要过渡配置。</p>
+      <p style="font-size:13.5px;margin-bottom:0">要换多个就串行做多次：3 → 4 → 5。<br>
+      <span style="color:var(--ink-3)">好处：实现简单得多，工业界主流（etcd、TiKV 都用它）。代价：慢一点，而且有一个著名的坑 ↓</span></p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>单节点变更的那个坑（2015 年才被发现）</div>
+    <p style="margin-bottom:0">论文原始的单节点变更规则是「节点一收到配置日志<u>就立刻</u>采用它，不等提交」。这条规则在<strong>连续两次变更</strong>时会出问题：第一次变更的配置日志还没提交就被覆盖，而某些节点已经按它行动了，可以构造出安全性违规。<br>
+    <strong>修复</strong>：新 Leader 必须先<em>提交</em>一条自己任期的日志（正是 §3.12 那条 no-op！），才允许发起新的成员变更。etcd 和 TiKV 都实现了这个约束。<br>
+    <span style="color:var(--ink-3)">这是个很好的提醒：连 Raft 这种以"可理解性"为设计目标、被无数人审阅过的算法，成员变更部分也带过 bug 一年多。<em>分布式算法的边界条件永远比正文难。</em></span></p>
+  </div>
+
+  <h3>另外三个实践细节</h3>
+  <ul>
+    <li><strong>新节点先当 learner。</strong>刚加入的节点日志是空的，如果立刻算进过半，会拖慢甚至阻塞提交（它得先追几个小时的日志）。所以先以<em>不投票的 learner</em> 身份加入、追平日志，再提升为投票成员。etcd 的 <code>--learner</code>、TiKV 的 Learner Replica 都是这个。</li>
+    <li><strong>配置日志走普通日志通道。</strong>成员配置本身就是一条特殊的日志条目，跟着日志复制走——这样配置变更也享有 Raft 的全部安全保证。</li>
+    <li><strong>移除 Leader 自己要小心。</strong>Leader 提交完"移除自己"的配置后必须主动退位，而它在退位前还得把这条配置复制给过半——否则新配置可能永远提交不了。</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2>3.21 线性一致读：最容易被忽略的一件</h2>
+  <p>回到 3-A 留下的那个问题。你当时答对了一半：僵尸 Leader 上的读会返回陈旧数据。现在补上机制——<strong>它的状态机冻结在分区那一刻的 <code>commitIndex</code> 上</strong>，新 Leader 之后提交的一切它都看不见。</p>
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>为什么"读"也需要走一遍共识</div>
+    <p style="margin-bottom:0">一个 Leader 无法仅凭自己的状态判断"我现在<u>还</u>是不是 Leader"。它上一次收到过半心跳响应是 200ms 前的事，这 200ms 里集群可能已经换了主、提交了新数据。<br>
+    <strong>所以"我是 Leader，我本地读一下"是不安全的</strong>——除非你能证明在读的那一刻你确实还是唯一的 Leader。</p>
+  </div>
+
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--crit)"><div><div class="nm">① 本地读</div><div class="en">local read</div></div>
+      <div class="de">Leader 直接读自己的状态机就返回。<strong>最快，但不线性一致。</strong>僵尸 Leader 会静默返回陈旧数据，而且<u>不报错</u>。<br>
+        <span style="color:var(--ink-3);font-size:13px">很多"我们用了 Raft 但读到了旧数据"的困惑都源自这里。</span></div></div>
+    <div class="lrung" style="border-color:var(--ok)"><div><div class="nm">② ReadIndex</div><div class="en">读之前先确认自己还是主</div></div>
+      <div class="de">三步：<br>
+        <strong>a.</strong> 记下当前 <code>commitIndex</code> 作为 <code>readIndex</code>；<br>
+        <strong>b.</strong> 发一轮心跳，<strong>确认过半节点仍然认自己是 Leader</strong>；<br>
+        <strong>c.</strong> 等 <code>lastApplied ≥ readIndex</code>，然后读状态机。<br>
+        <span style="color:var(--ink-3);font-size:13px">代价：每次读多一个心跳往返（但可以把并发的多个读<em>批量</em>合并成一次确认，所以吞吐影响远小于延迟影响）。僵尸 Leader 在第 b 步就会失败 ⇒ <strong>报错而不是给你旧数据</strong>。etcd 默认用它。</span></div></div>
+    <div class="lrung" style="border-color:var(--s1)"><div><div class="nm">③ Lease Read</div><div class="en">用时间换掉那个往返</div></div>
+      <div class="de">Leader 每次收到过半心跳响应，就给自己续一个<strong>租约</strong>（时长 &lt; 选举超时）。租约有效期内直接本地读，<u>不发心跳</u>。<br>
+        安全性依据：新 Leader 至少要等一个选举超时才可能产生，而租约比它短。<br>
+        <span style="color:var(--ink-3);font-size:13px"><strong>代价：它依赖时钟漂移有界</strong>——回到了 Part 1 的话题。时钟跳变会破坏这个保证。TiKV 默认用它，因为快得多。</span></div></div>
+    <div class="lrung" style="border-color:var(--s3)"><div><div class="nm">④ Follower Read</div><div class="en">让读也能水平扩展</div></div>
+      <div class="de">Follower 先向 Leader 要一个 <code>readIndex</code>，等自己的 <code>lastApplied</code> 追上它，再读本地状态机。<br>
+        <span style="color:var(--ink-3);font-size:13px">这样读请求不再全压在 Leader 上。代价是一次到 Leader 的往返 + 等待追平。TiKV 的 Follower Read 就是这么做的。</span></div></div>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 三种读，同一个僵尸 Leader</div><div class="s">3-A 那个问题的完整答案</div></div>
+    <div class="lab-b">
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b3part">① 制造分区（Leader 落到少数派）</button>
+        <button id="b3write">② 客户端向新 Leader 写 x=99</button>
+        <button id="b3read">③ 从僵尸 Leader 读 x</button>
+        <button id="b3reset">重置</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv3" viewBox="0 0 720 220" style="width:100%;height:auto;display:block"></svg></div>
+      <div id="o3" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>回头看 Part 2 的谱系</div>
+    <p style="margin-bottom:0">"Raft 集群是线性一致的"这句话准确的说法是：<strong>写入是线性一致的；读是否线性一致，取决于你选了上面哪一种读</strong>。<br>
+    本地读给你的其实是"最终一致 + 大概率很新"，而这在监控面板上和线性一致长得一模一样——直到某次分区。<em>这正是 Part 2 §2.4 那个 PACELC 的 ELC 部分：正常时候你仍然在延迟和一致性之间做选择。</em></p>
+  </div>
+</section>
+<section id="s5">
+  <h2>3.22 Raft 完整规则表</h2>
+  <p>Part 3 到这里结束。把三节的全部规则收在一页，这就是你实现一个 Raft 需要的全部约束。</p>
+
+  <h3>状态</h3>
+  <table>
+    <thead><tr><th style="width:22%">类别</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td><strong>持久化（所有节点）</strong></td><td><code>currentTerm</code>、<code>votedFor</code>、<code>log[]</code> —— <em>响应任何 RPC 前必须落盘</em></td></tr>
+      <tr><td>易失（所有节点）</td><td><code>commitIndex</code>、<code>lastApplied</code></td></tr>
+      <tr><td>易失（仅 Leader）</td><td><code>nextIndex[]</code>（乐观猜测）、<code>matchIndex[]</code>（保守事实）—— 当选时重新初始化</td></tr>
+    </tbody>
+  </table>
+
+  <h3>五条安全性属性</h3>
+  <table>
+    <thead><tr><th style="width:24%">属性</th><th style="width:38%">内容</th><th>靠什么保证</th></tr></thead>
+    <tbody>
+      <tr><td>选举安全性</td><td>一个任期至多一个 Leader</td><td>过半票 + 每任期一票（<code>votedFor</code> 必须持久化）</td></tr>
+      <tr><td>Leader 只追加</td><td>Leader 从不覆盖删除自己的日志</td><td>实现约定</td></tr>
+      <tr><td>日志匹配</td><td>同 index 同 term ⇒ 之前全相同</td><td>AppendEntries 的 prevLog 一致性检查（归纳）</td></tr>
+      <tr><td>Leader 完整性</td><td>已提交的日志出现在所有后续 Leader 上</td><td>过半集合相交 + 投票比日志新旧 + 只提交当前任期</td></tr>
+      <tr><td>状态机安全性</td><td>同一 index 上所有节点应用相同命令</td><td>上面两条的推论</td></tr>
+    </tbody>
+  </table>
+
+  <h3>那条贯穿一切的规则</h3>
+  <div class="note crit">
+    <p style="margin-bottom:0;font-size:15.5px;text-align:center"><strong>任何节点，任何时候，看到比自己大的任期号，就立刻更新任期并退回 Follower。</strong></p>
+  </div>
+
+  <h3>"两个过半集合必相交"在 Raft 里出现了四次</h3>
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--s1)"><div><div class="nm">① 选举安全性</div></div>
+      <div class="de">两个 Leader 的票集合相交 ⇒ 有人在同一任期投了两票 ⇒ 矛盾。</div></div>
+    <div class="lrung" style="border-color:var(--s3)"><div><div class="nm">② Leader 完整性</div></div>
+      <div class="de">持有已提交日志的集合 ∩ 给新 Leader 投票的集合 ≠ ∅ ⇒ 新 Leader 的日志不比它旧 ⇒ 必含该条目。</div></div>
+    <div class="lrung" style="border-color:var(--s7)"><div><div class="nm">③ Quorum 读写（Part 2）</div></div>
+      <div class="de">W + R &gt; N ⇒ 读集合必碰到一个持有最新写的副本。</div></div>
+    <div class="lrung" style="border-color:var(--warn)"><div><div class="nm">④ 成员变更</div></div>
+      <div class="de">单节点变更时 maj_old + maj_new &gt; |C_old ∪ C_new| ⇒ 新旧过半必相交 ⇒ 不会裂脑。</div></div>
+  </div>
+  <p><strong>如果 Part 3 只让你记住一件事，就是这个。</strong>Raft 看起来有很多规则，但它们全都从同一条集合论事实长出来——剩下的部分是工程，这一条是数学。</p>
+</section>
+
+<section id="s6">
+  <h2>3.23 自测题</h2>
+  <p>先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. 哪三样状态必须持久化？为什么 commitIndex 不在其中？</summary>
+    <div class="a"><p><code>currentTerm</code>、<code>votedFor</code>、<code>log[]</code>。</p>
+    <p style="margin-bottom:0"><code>commitIndex</code> 是一个<strong>可推导的结论</strong>——重启后置 0，Leader 的 <code>AppendEntries.leaderCommit</code> 会立刻把它重新推上去。而 <code>votedFor</code> 是一个<strong>不可推导的承诺</strong>：你对外许下的诺言，除了自己记着没有任何办法找回来。<em>这个"可推导 vs 承诺"的区分，是判断什么必须落盘的通用直觉。</em></p></div></details>
+
+  <details class="q"><summary>2. 如果 votedFor 不持久化，具体会怎样？</summary>
+    <div class="a"><p>节点在任期 5 投票给了 A，然后崩溃重启，<strong>"忘了"自己投过票</strong>。此时 B 也在任期 5 索票，它就再投一次。</p>
+    <p style="margin-bottom:0">于是 A 和 B 可能<u>各自</u>凑齐过半 ⇒ <strong>同一任期两个 Leader ⇒ 脑裂</strong>，两个 Leader 各写各的日志，数据分叉且无法自动合并。<br>
+    这和 Lab 3A-4 里"去掉每任期一票"演示的是同一个后果，只不过触发方式从"改代码"变成了"重启一下"——<em>后者在生产环境里天天发生</em>。</p></div></details>
+
+  <details class="q"><summary>3. 快照里为什么必须存 lastIncludedIndex 和 lastIncludedTerm？</summary>
+    <div class="a"><p>因为 <code>AppendEntries</code> 的一致性检查要比较 <code>prevLogIndex</code> 处的 term。日志被压缩后，那个位置可能已经不在日志数组里了。</p>
+    <p style="margin-bottom:0"><code>(lastIncludedIndex, lastIncludedTerm)</code> 充当被截断部分的<strong>代表</strong>：当 <code>prevLogIndex == lastIncludedIndex</code> 时，直接拿 <code>lastIncludedTerm</code> 去比较。<em>没有它们，日志匹配性质在截断之后就断了。</em>另外快照还必须包含成员配置，否则节点恢复后不知道集群里有谁。</p></div></details>
+
+  <details class="q"><summary>4. 为什么单节点成员变更是安全的？给出证明。</summary>
+    <div class="a"><p>因为新旧配置的任意两个过半集合<strong>必然相交</strong>。设旧集群 n 个节点，加一个变成 n+1：</p>
+    <pre style="margin:8px 0"><code>maj_old + maj_new = (⌊n/2⌋+1) + (⌊(n+1)/2⌋+1) = n + 2
+|C_old ∪ C_new|   = n + 1
+n + 2 &gt; n + 1  ✓</code></pre>
+    <p style="margin-bottom:0">要凑出两个不相交的集合需要 <code>n+2</code> 个不同节点，而并集里只有 <code>n+1</code> 个——鸽笼原理。减一个同理（和为 n+1，并集为 n）。<br>
+    对比 3→5：<code>2+3=5</code>，并集也是 5，<strong>5 &gt; 5 不成立</strong> ⇒ 可以取到 {A,B} 和 {C,D,E} 这两个不相交的过半集合 ⇒ 裂脑。</p></div></details>
+
+  <details class="q"><summary>5. 联合共识和单节点变更各自的取舍是什么？</summary>
+    <div class="a"><p><strong>联合共识</strong>：引入过渡配置 <code>C_old,new</code>，期间任何决定都要<em>同时</em>得到新旧两个配置的过半。可以一次换掉任意多节点，但实现复杂（要处理两配置并存的所有边界）。</p>
+    <p style="margin-bottom:0"><strong>单节点变更</strong>：一次只动一个，靠交集性质天然安全，不需要过渡配置。实现简单得多，是工业界主流（etcd、TiKV）。代价是换多个节点要串行做多次，而且有那个 2015 年才发现的坑——<em>新 Leader 必须先提交一条自己任期的日志（no-op），才能发起新的成员变更</em>。</p></div></details>
+
+  <details class="q"><summary>6. 新节点加入集群为什么要先当 learner？</summary>
+    <div class="a"><p>因为新节点的日志是空的。如果立刻把它算进"过半"，Leader 就必须等它确认才能提交——而它可能要追几个小时的日志。</p>
+    <p style="margin-bottom:0">具体后果：3 节点集群加一个新节点变 4 节点，过半从 2 变 3。如果那第 3 票只能来自还在追日志的新节点，<strong>整个集群的写入会被拖到几乎停摆</strong>。<br>
+    所以先以<em>不投票的 learner</em> 加入、追平日志，再提升为投票成员。etcd 的 <code>--learner</code>、TiKV 的 Learner Replica 都是这个机制。</p></div></details>
+
+  <details class="q"><summary>7. Leader 直接读自己的状态机，为什么不是线性一致的？</summary>
+    <div class="a"><p>因为 Leader <strong>无法仅凭自身状态判断"我现在还是不是 Leader"</strong>。它上次收到过半心跳响应可能是 200ms 前，这期间集群可能已经换主并提交了新数据。</p>
+    <p style="margin-bottom:0">最坏情况就是<strong>僵尸 Leader</strong>：它被分区到少数派，状态机冻结在分区那一刻的 <code>commitIndex</code>，却仍然自认为是主。本地读会<em>静默返回陈旧数据，而且不报错</em>——客户端从新 Leader 写入拿到成功，转头从僵尸读到旧值，线性一致性被打破。</p></div></details>
+
+  <details class="q"><summary>8. ReadIndex 和 Lease Read 的区别是什么？各自的代价？</summary>
+    <div class="a"><p><strong>ReadIndex</strong>：读之前发一轮心跳，确认过半节点仍认自己是 Leader，再读。<em>代价是每次读多一个心跳往返</em>（但并发的读可以批量合并成一次确认，所以对吞吐影响远小于对延迟的影响）。<strong>不依赖时钟。</strong>etcd 默认。</p>
+    <p style="margin-bottom:0"><strong>Lease Read</strong>：每次收到过半心跳响应就续一个租约（时长 &lt; 选举超时），租约内直接本地读。<em>代价是依赖时钟漂移有界</em>——时钟跳变会破坏安全性，这又回到了 Part 1 的话题。TiKV 默认，因为快得多。<br>
+    <strong>关键区别：ReadIndex 用一次网络往返买安全，Lease Read 用一个时钟假设买安全。</strong></p></div></details>
+
+  <details class="q"><summary>9. "两个过半集合必相交"在 Raft 里出现在哪几处？</summary>
+    <div class="a"><ol>
+      <li><strong>选举安全性</strong>：两个 Leader 的票集合相交 ⇒ 有人同一任期投两票 ⇒ 矛盾。</li>
+      <li><strong>Leader 完整性</strong>：持有已提交日志的集合 ∩ 投票集合 ≠ ∅ ⇒ 新 Leader 日志不比它旧 ⇒ 必含该条目。</li>
+      <li><strong>Quorum 读写</strong>（Part 2）：W+R&gt;N ⇒ 读集合必碰到持有最新写的副本。</li>
+      <li><strong>成员变更</strong>：maj_old + maj_new &gt; |C_old ∪ C_new| ⇒ 新旧过半必相交 ⇒ 不裂脑。</li>
+    </ol>
+    <p style="margin-bottom:0">Raft 看起来规则很多，但它们全都从这一条集合论事实长出来。<em>剩下的是工程，这一条是数学。</em></p></div></details>
+
+  <details class="q"><summary>10. 【综合】线上 etcd 集群，监控显示某节点频繁触发 InstallSnapshot。这说明什么？怎么排查？</summary>
+    <div class="a">
+    <p><strong>说明这个节点长期追不上 Leader</strong>，落后到超出了 Leader 已压缩的日志范围。InstallSnapshot 是"落后的补救"，不该是常规路径。</p>
+    <p><strong>排查方向</strong>，按可能性排序：</p>
+    <ol>
+      <li><strong>磁盘慢</strong>：fsync 延迟高（云盘限流、磁盘老化、和别的负载抢 IO）。看 <code>etcd_disk_wal_fsync_duration_seconds</code>。这是最常见的原因。</li>
+      <li><strong>网络慢或丢包</strong>：到该节点的链路质量差，AppendEntries 重传频繁。看 <code>etcd_network_peer_round_trip_time_seconds</code>。</li>
+      <li><strong>快照阈值太低</strong>：<code>--snapshot-count</code> 设得太小，日志刚积攒一点就被压缩，正常的短暂落后也会触发 InstallSnapshot。</li>
+      <li><strong>该节点资源不足</strong>：CPU 被抢、内存不够导致频繁 GC 或 swap。</li>
+    </ol>
+    <p style="margin-bottom:0"><strong>为什么必须管</strong>：一个长期追不上的节点等于集群实际少了一个副本——<em>5 节点集群的容错能力悄悄从 2 掉到了 1，而监控上"节点数"还是 5</em>。而且 InstallSnapshot 传输本身会进一步挤占带宽，容易形成恶性循环。</p></div></details>
+</section>
+
+<section id="s7">
+  <h2>Lab 3-C · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/go/lab03c/</code>。这是 Part 3 的最后一个 Lab。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>3C-1</strong><br>持久化与崩溃重启</td><td>给节点加上崩溃/重启，然后<strong>分别丢掉 currentTerm / votedFor / log</strong> 各跑 60 个种子，看哪条安全性倒下、倒下多少次。</td></tr>
+      <tr><td><strong>3C-2</strong><br>快照</td><td>实现日志压缩与 InstallSnapshot。把一个节点隔离到落后超过快照点，再放回来，验证它靠快照追平且日志仍然匹配。</td></tr>
+      <tr><td><strong>3C-3</strong><br>成员变更裂脑</td><td>直接跳 3→5 vs 单节点 3→4→5，各 60 个种子。<strong>前者会选出两个 Leader，后者一次都不会。</strong></td></tr>
+      <tr><td><strong>3C-4</strong><br>三种读</td><td>制造僵尸 Leader，用本地读 / ReadIndex / Lease Read 各读一遍，统计<strong>返回陈旧数据的次数</strong>与<strong>正确报错的次数</strong>。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab03c &amp;&amp; go run .
+
+<span class="cm"># Java</span>
+cd ~/Code/distributed-systems-course/java/lab03c &amp;&amp; java Lab03C.java
+
+<span class="cm"># 单独看某一项失去持久化的后果</span>
+go run . -lose votedfor
+go run . -lose term
+go run . -lose log
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完后回答</div>
+    <p style="margin-bottom:0">1) 三样状态里，丢掉哪一样造成的违规最多？为什么是它？<br>
+    2) 3C-3 里直接跳 3→5 时，两个 Leader 分别是靠哪些节点的票当选的？把那两组列出来，验证它们确实不相交。<br>
+    3) 3C-4 里 Lease Read 一次陈旧读都没有——这是不是意味着它和 ReadIndex 一样安全？<em>先想清楚它依赖什么假设。</em></p>
+  </div>
+
+  <h3>Part 3 结束，下一站</h3>
+  <p><strong>Part 4 · 分布式事务。</strong>Part 3 解决的是"同一份数据的多个副本保持一致"，Part 4 要解决的是另一个问题：<strong>一个事务跨多个不同的数据分片，怎么保证要么全做要么全不做</strong>。我们会先补单机事务的功课（ACID、隔离级别、并发异常、MVCC、快照隔离），再进分布式：2PC/XA、TCC、Saga、本地消息表与事务消息、Percolator（TiDB 的事务模型）、Calvin、以及 Spanner 的外部一致性。<br>
+  你会看到 3-A 讲过的那个组合再次出现：<em>用 2PC 做跨分片原子提交，每个分片内部用 Raft 复制，协调者本身也做成一个 Raft 组</em>——那时候 2PC 的阻塞问题就不存在了。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const NS="http://www.w3.org/2000/svg";
+function el(t,a,x){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}
+function cv(n){return getComputedStyle(document.body).getPropertyValue(n).trim();}
+
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");draw1();draw2();draw3();};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 1 · 崩溃重启：漏掉一样持久化状态会怎样
+   ══════════════════════════════════════════════════════════════════ */
+const N1=["N1","N2","N3","N4","N5"];
+function nd(role,term,vote,dead){return {role,term,vote,dead:!!dead};}
+const SC1=[
+ {n:"全部持久化（正确）",disk:"currentTerm ✓　votedFor ✓　log ✓",steps:[
+  {t:"任期 5：N1 和 N2 同时成为 Candidate",
+   s:[nd("C",5,"N1"),nd("C",5,"N2"),nd("F",5,"—"),nd("F",5,"—"),nd("F",5,"—")],
+   note:"两个节点同时超时，各自 term++ 到 5，都先投了自己一票。过半需要 <strong>3 票</strong>。"},
+  {t:"N3 投给 N1，N4 投给 N2 —— 两边都是 2 票",
+   s:[nd("C",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"—")],
+   note:"N1 有 {N1,N3} = 2 票，N2 有 {N2,N4} = 2 票。<strong>N5 的那一票决定一切。</strong>"},
+  {t:"N5 投给 N1 → N1 拿到 3 票当选",
+   s:[nd("L",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"N1")],
+   hi:[4],note:"N1 集齐 {N1,N3,N5} = 3 票，成为任期 5 的 Leader。<br>N5 <strong>把 votedFor=N1 写进了磁盘</strong>，然后才回复投票。"},
+  {t:"N5 崩溃重启",
+   s:[nd("L",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"N1",true)],
+   hi:[4],note:"N5 掉电了。它的内存全没了，但磁盘上的三样状态还在。"},
+  {t:"N5 从磁盘读回 votedFor=N1，拒绝 N2",
+   s:[nd("L",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"N1")],
+   hi:[4],ok:true,
+   note:"N5 恢复后<strong>记得自己在任期 5 已经投过票了</strong>，所以拒绝 N2 的索票。<br>N2 停在 2 票，永远选不上。<strong>任期 5 只有 N1 一个 Leader。</strong>"}]},
+ {n:"丢失 votedFor",disk:"currentTerm ✓　<span style='color:var(--crit)'>votedFor ✗</span>　log ✓",steps:[
+  {t:"任期 5：N1 和 N2 同时成为 Candidate",
+   s:[nd("C",5,"N1"),nd("C",5,"N2"),nd("F",5,"—"),nd("F",5,"—"),nd("F",5,"—")],
+   note:"和上一个场景完全相同的开局。"},
+  {t:"N3 投给 N1，N4 投给 N2 —— 两边都是 2 票",
+   s:[nd("C",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"—")],
+   note:"N1 有 2 票，N2 有 2 票。过半需要 3 票。"},
+  {t:"N5 投给 N1 → N1 当选",
+   s:[nd("L",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"N1")],
+   hi:[4],note:"N1 集齐 {N1,N3,N5} = 3 票当选。<br><strong style='color:var(--crit)'>但 N5 只把 votedFor 记在了内存里。</strong>"},
+  {t:"N5 崩溃重启 —— votedFor 没了",
+   s:[nd("L",5,"N1"),nd("C",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"—",true)],
+   hi:[4],note:"N5 掉电重启。<code>currentTerm=5</code> 从磁盘读回来了，但 <code>votedFor</code> 变成了空——<strong>它忘了自己投过票。</strong>"},
+  {t:"N5 又投给了 N2 → 同一任期第二个 Leader",
+   s:[nd("L",5,"N1"),nd("L",5,"N2"),nd("F",5,"N1"),nd("F",5,"N2"),nd("F",5,"N2")],
+   hi:[0,1,4],bad:true,
+   note:"N2 还在索票。N5 觉得自己本任期还没投过，于是投给了 N2。<br>N2 集齐 {N2,N4,N5} = 3 票，<strong style='color:var(--crit)'>在同一个任期 5 里也当选了 Leader</strong>。<br>两个 Leader 的票集合分别是 {N1,N3,N5} 和 {N2,N4,N5}——<em>它们的交集 {N5} 在同一任期投了两票</em>。"}]},
+ {n:"丢失 currentTerm",disk:"<span style='color:var(--crit)'>currentTerm ✗</span>　votedFor ✓　log ✓",steps:[
+  {t:"任期 8：N1 是 Leader，集群正常",
+   s:[nd("L",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1")],
+   note:"集群已经跑到任期 8。所有节点的 currentTerm 都是 8。"},
+  {t:"N5 崩溃重启 —— currentTerm 归零",
+   s:[nd("L",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",0,"N1",true)],
+   hi:[4],note:"N5 重启后 <code>currentTerm</code> 回到 0。它<strong>不再知道自己见过任期 8</strong>。"},
+  {t:"N5 接受一个来自任期 3 的过时 Candidate",
+   s:[nd("L",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",8,"N1"),nd("F",3,"旧节点")],
+   hi:[4],bad:true,
+   note:"一个被隔离很久、还停在任期 3 的节点回来索票。<br>正常情况下 N5 会因为 <code>3 &lt; 8</code> 直接拒绝，但现在它的 term 是 0，<strong>于是接受了这个过时请求并投了票</strong>。<br><em>currentTerm 的作用就是识别并淘汰陈旧信息——丢了它，节点就失去了时间感。</em><br>更糟的是：即使 votedFor 持久化了也救不了，因为 votedFor 是<u>相对于某个任期</u>才有意义的。"}]},
+ {n:"丢失 log[]",disk:"currentTerm ✓　votedFor ✓　<span style='color:var(--crit)'>log ✗</span>",steps:[
+  {t:"一条日志复制到 {N1,N2,N3}，已提交",
+   s:[nd("L",6,"log:[x=1]"),nd("F",6,"log:[x=1]"),nd("F",6,"log:[x=1]"),nd("F",6,"log:[]"),nd("F",6,"log:[]")],
+   hi:[0,1,2],note:"3/5 个节点持有 <code>x=1</code>，达到过半，Leader 提交并<strong>回复客户端「成功」</strong>。"},
+  {t:"N2、N3 崩溃重启 —— 日志没了",
+   s:[nd("L",6,"log:[x=1]"),nd("F",6,"log:[]",true),nd("F",6,"log:[]",true),nd("F",6,"log:[]"),nd("F",6,"log:[]")],
+   hi:[1,2],note:"两个节点重启后日志为空。<strong>现在全集群只有 N1 还持有 x=1。</strong>"},
+  {t:"N1 崩溃，N4 当选新 Leader",
+   s:[nd("F",7,"log:[x=1]",true),nd("F",7,"log:[]"),nd("F",7,"log:[]"),nd("L",7,"log:[]"),nd("F",7,"log:[]")],
+   hi:[3],bad:true,
+   note:"N1 也挂了。N4 拿到 {N2,N3,N4} 的票当选——<strong>它们的日志都是空的，没人比 N4 更新</strong>，投票规则拦不住它。<br><strong style='color:var(--crit)'>x=1 从此消失，而客户端早已收到「成功」。</strong><br><em>Leader 完整性依赖「持有已提交日志的节点构成过半」这个事实——日志不落盘，这个事实就是假的。</em>"}]}
+];
+let sc1=0, st1=0, tm1=null;
+function draw1(){
+  const S=SC1[sc1], P=S.steps[st1], svg=$("#sv1"); svg.innerHTML="";
+  const X=[70,200,330,460,590], W=118, Y=52;
+  svg.appendChild(el("text",{x:14,y:20,fill:cv("--ink"),"font-size":13,"font-weight":700,"font-family":cv("--sans")},P.t));
+  const RC={F:["Follower","--s1"],C:["Candidate","--warn"],L:["Leader","--ok"]};
+  P.s.forEach((n,i)=>{
+    const hi=(P.hi||[]).includes(i);
+    const col=n.dead?cv("--crit"):cv(RC[n.role][1]);
+    svg.appendChild(el("rect",{x:X[i],y:Y,width:W,height:62,rx:9,fill:cv("--surface"),
+      stroke:hi?cv(P.bad?"--crit":"--warn"):col,"stroke-width":hi?3:2}));
+    svg.appendChild(el("text",{x:X[i]+W/2,y:Y+20,fill:cv("--ink"),"font-size":13,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans")},(n.dead?"☠ ":"")+N1[i]));
+    svg.appendChild(el("text",{x:X[i]+W/2,y:Y+36,fill:col,"font-size":10.5,"font-weight":650,
+      "text-anchor":"middle","font-family":cv("--sans")},n.dead?"崩溃重启中":RC[n.role][0]));
+    svg.appendChild(el("text",{x:X[i]+W/2,y:Y+52,fill:cv("--ink-3"),"font-size":10,
+      "text-anchor":"middle","font-family":cv("--mono")},"t"+n.term+" · "+n.vote));
+  });
+  // 磁盘条
+  svg.appendChild(el("rect",{x:70,y:150,width:638,height:38,rx:8,fill:cv("--surface-2"),stroke:cv("--border")}));
+  svg.appendChild(el("text",{x:88,y:174,fill:cv("--ink-3"),"font-size":11.5,"font-family":cv("--sans")},"💾 崩溃后能从磁盘恢复的："));
+  const d=el("text",{x:250,y:174,"font-size":12,"font-family":cv("--mono"),fill:cv("--ink")});
+  d.innerHTML=S.disk; svg.appendChild(d);
+  svg.appendChild(el("text",{x:14,y:212,fill:cv("--ink-3"),"font-size":10.5,"font-family":cv("--sans")},
+    "步骤 "+(st1+1)+" / "+S.steps.length));
+  const cls=P.bad?"crit":P.ok?"ok":"";
+  $("#o1").innerHTML='<div class="note '+cls+'" style="margin:0">'+
+    (cls?'<div class="note-h"><span class="dot" style="background:'+(P.ok?cv("--ok"):cv("--crit"))+'"></span>'+
+      (P.ok?"安全性成立":"安全性被破坏")+'</div>':'')+'<p style="margin-bottom:0">'+P.note+'</p></div>';
+}
+function step1(){ if(st1<SC1[sc1].steps.length-1){st1++;draw1();} else {clearInterval(tm1);tm1=null;$("#b1auto").textContent="自动播放";} }
+$("#b1step").onclick=step1;
+$("#b1auto").onclick=e=>{ if(tm1){clearInterval(tm1);tm1=null;e.target.textContent="自动播放";}
+  else{ if(st1>=SC1[sc1].steps.length-1) st1=0; e.target.textContent="暂停"; tm1=setInterval(step1,1600); draw1(); } };
+$("#b1reset").onclick=()=>{st1=0;clearInterval(tm1);tm1=null;$("#b1auto").textContent="自动播放";draw1();};
+$$("#sc1 button").forEach(b=>b.onclick=()=>{$$("#sc1 button").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act");sc1=+b.dataset.s;st1=0;clearInterval(tm1);tm1=null;$("#b1auto").textContent="自动播放";draw1();});
+draw1();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 2 · 成员变更裂脑模拟
+   ══════════════════════════════════════════════════════════════════ */
+const NAMES="ABCDEFGHI".split("");
+function draw2(){
+  const o=+$("#r2o").value, n=+$("#r2n").value;
+  $("#l2o").textContent=o; $("#l2n").textContent=n;
+  const U=Math.max(o,n), mo=Math.floor(o/2)+1, mn=Math.floor(n/2)+1;
+  const canDisjoint = mo+mn <= U;
+  // 构造一对（尽量）不相交的过半集合
+  let Sold=[], Snew=[];
+  if(o<=n){ for(let i=0;i<mo;i++) Sold.push(i); for(let i=n-mn;i<n;i++) Snew.push(i); }
+  else    { for(let i=0;i<mn;i++) Snew.push(i); for(let i=o-mo;i<o;i++) Sold.push(i); }
+  const inter=Sold.filter(x=>Snew.includes(x));
+
+  const svg=$("#sv2"); svg.innerHTML="";
+  const cw=Math.min(72,640/U), x0=52;
+  svg.appendChild(el("text",{x:14,y:20,fill:cv("--ink-3"),"font-size":11,"font-family":cv("--sans")},
+    "并集里的全部节点（C_old ∪ C_new，共 "+U+" 个）"));
+  for(let i=0;i<U;i++){
+    const x=x0+i*cw, inOld=i<o, inNew=i<n;
+    const inSo=Sold.includes(i), inSn=Snew.includes(i), both=inter.includes(i);
+    svg.appendChild(el("rect",{x:x+3,y:34,width:cw-8,height:46,rx:8,fill:cv("--surface"),
+      stroke:both?cv("--s4"):inSo?cv("--s2"):inSn?cv("--s3"):cv("--border"),
+      "stroke-width":(inSo||inSn)?2.5:1}));
+    svg.appendChild(el("text",{x:x+cw/2-1,y:54,fill:cv("--ink"),"font-size":13,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans")},NAMES[i]));
+    svg.appendChild(el("text",{x:x+cw/2-1,y:70,fill:cv("--ink-3"),"font-size":9.5,
+      "text-anchor":"middle","font-family":cv("--sans")},inOld&&inNew?"旧+新":inOld?"仅旧":"仅新"));
+    if(inSo) svg.appendChild(el("text",{x:x+cw/2-1,y:98,fill:cv("--s2"),"font-size":10.5,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans")},"旧过半"));
+    if(inSn) svg.appendChild(el("text",{x:x+cw/2-1,y:114,fill:cv("--s3"),"font-size":10.5,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans")},"新过半"));
+    if(both) svg.appendChild(el("text",{x:x+cw/2-1,y:132,fill:cv("--s4"),"font-size":10,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans")},"★ 交集"));
+  }
+  svg.appendChild(el("text",{x:14,y:170,fill:cv("--ink-2"),"font-size":12,"font-family":cv("--mono")},
+    "maj_old + maj_new = "+mo+" + "+mn+" = "+(mo+mn)+"　　|C_old ∪ C_new| = "+U));
+  svg.appendChild(el("text",{x:14,y:192,fill:canDisjoint?cv("--crit"):cv("--ok"),"font-size":13,"font-weight":700,"font-family":cv("--mono")},
+    (mo+mn)+" > "+U+" ？　"+(canDisjoint?"✗ 不成立 ⇒ 可以取到两个不相交的过半集合":"✓ 成立 ⇒ 必然相交，安全")));
+
+  $("#st2").innerHTML=
+    '<div class="stat"><div class="k">旧配置过半</div><div class="v" style="color:var(--s2)">'+mo+'</div><div class="u">/ '+o+' 个节点</div></div>'+
+    '<div class="stat"><div class="k">新配置过半</div><div class="v" style="color:var(--s3)">'+mn+'</div><div class="u">/ '+n+' 个节点</div></div>'+
+    '<div class="stat"><div class="k">两者之和</div><div class="v">'+(mo+mn)+'</div><div class="u">对比并集 '+U+'</div></div>'+
+    '<div class="stat"><div class="k">变更幅度</div><div class="v">'+Math.abs(n-o)+'</div><div class="u">个节点</div></div>'+
+    '<div class="stat"><div class="k">是否安全</div><div class="v" style="color:'+(canDisjoint?cv("--crit"):cv("--ok"))+'">'+
+      (canDisjoint?"✗ 危险":"✓ 安全")+'</div><div class="u">'+(canDisjoint?"可能裂脑":"必然相交")+'</div></div>';
+
+  const fmt=a=>"{"+a.map(i=>NAMES[i]).join(",")+"}";
+  $("#o2").innerHTML='<div class="note '+(canDisjoint?"crit":"ok")+'" style="margin:0">'+
+    '<div class="note-h"><span class="dot" style="background:'+(canDisjoint?cv("--crit"):cv("--ok"))+'"></span>'+
+    (canDisjoint?"能凑出两个不相交的过半集合 ⇒ 同一任期可以出现两个 Leader":"凑不出不相交的过半集合 ⇒ 安全")+'</div>'+
+    '<p style="margin-bottom:0">旧配置的一个过半集合：<span class="chip" style="border-color:var(--s2)">'+fmt(Sold)+'</span>　'+
+    '新配置的一个过半集合：<span class="chip" style="border-color:var(--s3)">'+fmt(Snew)+'</span><br>'+
+    (canDisjoint
+      ? '<strong style="color:var(--crit)">这两组没有任何共同节点。</strong>如果前一组还在用旧配置、后一组已经切到新配置，'+
+        '它们各自都认为自己凑齐了过半，于是<strong>在同一个任期里选出两个 Leader</strong>——Raft 全部安全性的地基当场塌掉。<br>'+
+        '<span style="color:var(--ink-3)">这就是为什么不能一次跨越多个节点。改成一次只动一个（比如 '+o+' → '+(o+(n>o?1:-1))+'）再看。</span>'
+      : '<strong style="color:var(--ok)">交集是 '+fmt(inter)+'</strong>——不管你怎么挑，两组必然共享至少一个节点。'+
+        '那个节点在同一任期只能投一票，所以两个 Leader 不可能同时出现。<br>'+
+        '<span style="color:var(--ink-3)">要凑出不相交的两组需要 '+(mo+mn)+' 个不同节点，而并集里只有 '+U+' 个——鸽笼原理。</span>')+
+    '</p></div>';
+}
+["r2o","r2n"].forEach(i=>$("#"+i).oninput=draw2);
+const setON=(o,n)=>{$("#r2o").value=o;$("#r2n").value=n;draw2();};
+$("#b2a").onclick=()=>setON(3,5); $("#b2b").onclick=()=>setON(3,4);
+$("#b2c").onclick=()=>setON(5,3); $("#b2d").onclick=()=>setON(3,7);
+draw2();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 3 · 三种读，同一个僵尸 Leader
+   ══════════════════════════════════════════════════════════════════ */
+const S3={part:false,written:false,read:false};
+function draw3(){
+  const svg=$("#sv3"); svg.innerHTML="";
+  const zx=[110,240], mx=[420,540,660], Y=80;
+  if(S3.part){
+    svg.appendChild(el("line",{x1:335,y1:24,x2:335,y2:150,stroke:cv("--crit"),"stroke-width":2.5,"stroke-dasharray":"7 5"}));
+    svg.appendChild(el("text",{x:335,y:18,fill:cv("--crit"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},"网络分区"));
+  }
+  const val=S3.written?"x=99":"x=1";
+  const node=(x,label,role,v,col,sub)=>{
+    svg.appendChild(el("circle",{cx:x,cy:Y,r:30,fill:cv("--surface"),stroke:cv(col),"stroke-width":role==="L"?3:2}));
+    svg.appendChild(el("text",{x:x,y:Y-4,fill:cv("--ink"),"font-size":12,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},label));
+    svg.appendChild(el("text",{x:x,y:Y+11,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--mono")},v));
+    svg.appendChild(el("text",{x:x,y:Y+48,fill:cv(col),"font-size":10.5,"font-weight":650,"text-anchor":"middle","font-family":cv("--sans")},sub));
+  };
+  node(zx[0],"N1","L","x=1",S3.part?"--crit":"--ok",S3.part?"僵尸 Leader":"Leader");
+  node(zx[1],"N2","F","x=1","--s1","Follower");
+  node(mx[0],"N3",S3.part?"L":"F",val,S3.part?"--ok":"--s1",S3.part?"新 Leader":"Follower");
+  node(mx[1],"N4","F",val,"--s1","Follower");
+  node(mx[2],"N5","F",val,"--s1","Follower");
+  svg.appendChild(el("text",{x:175,y:160,fill:cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},"少数派 2/5"));
+  svg.appendChild(el("text",{x:540,y:160,fill:cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},"多数派 3/5　过半 = 3 ✓"));
+  if(S3.read){
+    svg.appendChild(el("text",{x:110,y:196,fill:cv("--crit"),"font-size":11.5,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},"客户端在这里读 x"));
+    svg.appendChild(el("line",{x1:110,y1:182,x2:110,y2:118,stroke:cv("--crit"),"stroke-width":1.5,"stroke-dasharray":"3 3"}));
+  }
+  let h;
+  if(!S3.part) h='<div class="note" style="margin:0"><p style="margin-bottom:0">集群正常，N1 是 Leader，<code>x=1</code>。点「制造分区」开始。</p></div>';
+  else if(!S3.written) h='<div class="note warn" style="margin:0"><div class="note-h"><span class="dot" style="background:var(--warn)"></span>分区已持续超过一个选举超时</div>'+
+    '<p style="margin-bottom:0">多数派 {N3,N4,N5} 选出了新 Leader N3。<br>'+
+    'N1 仍然自认为是 Leader（基础 Raft 不会让它主动退位），它的状态机<strong>冻结在 x=1</strong>。<br>'+
+    '现在点第 ② 步，让客户端向<em>新</em> Leader 写入。</p></div>';
+  else if(!S3.read) h='<div class="note ok" style="margin:0"><div class="note-h"><span class="dot" style="background:var(--ok)"></span>写入成功</div>'+
+    '<p style="margin-bottom:0">客户端向 N3 写 <code>x=99</code>，复制到 {N3,N4,N5} 过半，<strong>提交并回复客户端成功</strong>。<br>'+
+    '而 N1、N2 那边完全不知情，它们的状态机还停在 <code>x=1</code>。<br>'+
+    '现在点第 ③ 步：客户端（比如被 DNS 或连接池路由到了 N1）从僵尸 Leader 读 x。</p></div>';
+  else h='<div class="note crit" style="margin:0"><div class="note-h"><span class="dot" style="background:var(--crit)"></span>三种读，三种结果</div>'+
+    '<table style="margin:10px 0 0"><thead><tr><th style="width:22%">读的实现</th><th style="width:22%">返回什么</th><th>为什么</th></tr></thead><tbody>'+
+    '<tr><td><strong>① 本地读</strong></td><td><strong style="color:var(--crit)">x=1（陈旧）</strong></td>'+
+    '<td>N1 直接读自己的状态机就返回。<strong>不报错、无日志、无痕迹</strong>——客户端刚从 N3 拿到"写入成功"，转头就读到旧值，线性一致性当场破裂。</td></tr>'+
+    '<tr><td><strong>② ReadIndex</strong></td><td><strong style="color:var(--ok)">报错</strong></td>'+
+    '<td>N1 读之前先发一轮心跳确认自己还是主，但只有 N2 响应（1/5 &lt; 过半 3）⇒ <strong>它发现自己已经不是合法 Leader，拒绝服务</strong>。<em>给你错误，而不是给你错的数据。</em></td></tr>'+
+    '<tr><td><strong>③ Lease Read</strong></td><td><strong style="color:var(--ok)">报错</strong></td>'+
+    '<td>N1 的租约在收不到过半心跳响应后就没再续上，而现在已经过了一个选举超时（租约比它更短），<strong>租约早已过期</strong> ⇒ 拒绝本地读。</td></tr>'+
+    '</tbody></table>'+
+    '<p style="margin:12px 0 0"><strong>关于 Lease Read 的那个窗口</strong>：在分区刚发生、租约还没过期的那一小段时间里，N1 确实会直接本地返回 <code>x=1</code>。'+
+    '但那段时间内<em>新 Leader 还不可能产生</em>（选举超时比租约长），所以 <code>x=1</code> 当时仍是全集群的最新值——<strong>仍然线性一致</strong>。<br>'+
+    '这个论证成立的前提是 <strong>时钟漂移有界</strong>。如果 N1 的时钟突然变慢，它会以为租约还没到期而继续本地读——'+
+    '<em>Part 1 那个坑，在这里变成了一致性问题。</em>这就是 ReadIndex（用一次网络往返买安全）和 Lease Read（用一个时钟假设买安全）的根本区别。</p></div>';
+  $("#o3").innerHTML=h;
+}
+$("#b3part").onclick=()=>{S3.part=true;draw3();};
+$("#b3write").onclick=()=>{if(S3.part){S3.written=true;draw3();}};
+$("#b3read").onclick=()=>{if(S3.written){S3.read=true;draw3();}};
+$("#b3reset").onclick=()=>{S3.part=S3.written=S3.read=false;draw3();};
+draw3();
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

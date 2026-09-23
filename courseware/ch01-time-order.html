@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 1 · 时间、顺序与因果</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+/* Part 1 专用 */
+.grid-wrap{overflow-x:auto}
+.modes{display:flex;gap:6px;flex-wrap:wrap}
+.modes button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.rel{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px;align-items:baseline}
+.rel dt{color:var(--ink-3);font-weight:600;white-space:nowrap}
+.rel dd{margin:0;color:var(--ink-2)}
+.vt{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.three{grid-template-columns:1fr}}
+.axm{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:10px 0}
+.axm .b{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--s1);
+  width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 1</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：从你的答案说起</a>
+    <a href="#s1">1.1 三种时钟</a>
+    <a href="#s2">1.2 happens-before</a>
+    <a href="#s2" class="sub">▸ 实验：时空图编辑器</a>
+    <a href="#s3">1.3 Lamport 逻辑时钟</a>
+    <a href="#s4">1.4 向量时钟</a>
+    <a href="#s5">1.5 LWW 的危险</a>
+    <a href="#s5" class="sub">▸ 实验：静默丢写复现</a>
+    <a href="#s6">1.6 混合逻辑时钟 HLC</a>
+    <a href="#s6" class="sub">▸ 实验：时钟回拨</a>
+    <a href="#s7">1.7 TrueTime 与 Spanner</a>
+    <a href="#s8">1.8 通向共识：全序广播</a>
+    <a href="#s9">1.9 自测题（10 题）</a>
+    <a href="#s10">Lab 1 · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 1 · Time, Order &amp; Causality</div>
+  <h1>没有全局时钟，怎么说"这件事在那件事之前"</h1>
+  <p class="lead">你在第 0 章的自测里说对了一句关键的话：单调时钟能防止"时间明明向后却回拨"，而这会影响<em>可见顺序</em>和<em>超时剔除</em>。这一章把那句话拆成两半——超时剔除属于单调时钟的领域，已经解决了；<strong>可见顺序不属于任何一种物理时钟</strong>，它需要一个全新的东西。</p>
+
+  <table>
+    <thead><tr><th style="width:32%">用途</th><th style="width:20%">用哪种时钟</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td>测耗时、超时、心跳、限流窗口</td><td><strong>单调时钟</strong></td><td>只关心"过了多久"，绝对值无意义，必须免疫 NTP 跳变。<span style="color:var(--ink-3)">nginx 2018 年才把 <code>ngx_current_msec</code> 改成 CLOCK_MONOTONIC；Redis 6.2 才引入 <code>getMonotonicUs()</code>。</span></td></tr>
+      <tr><td>TTL / 过期时间 / 定时任务</td><td><strong>墙上时钟</strong></td><td>语义就是"到某个绝对时刻作废"，必须跨进程重启、跨主从一致。<span style="color:var(--ink-3)">所以 Redis 的 key 过期至今仍用 <code>mstime()</code>，这是对的。</span></td></tr>
+      <tr style="background:color-mix(in srgb,var(--s1) 10%,transparent)"><td><strong>判断两台机器上事件的先后</strong></td><td><strong>两种都不行</strong></td><td><strong>需要逻辑时钟。这一章就是解这一行的。</strong></td></tr>
+    </tbody>
+  </table>
+
+  <div class="card">
+    <div class="card-t">这一章你会带走什么</div>
+    <ul style="margin-bottom:0">
+      <li><strong>happens-before 偏序</strong>——一套不依赖任何时钟就能定义"先后"的语言，1978 年 Lamport 发明，至今是全领域的通用词汇</li>
+      <li><strong>Lamport 时钟</strong>与它的根本局限（只能单向推断），以及为什么它仍然够用于分布式互斥</li>
+      <li><strong>向量时钟</strong>——唯一能精确判定"并发"的工具，以及它 O(N) 的代价</li>
+      <li>亲手复现 <strong>last-write-wins 静默丢数据</strong>，再用向量时钟把它抓出来</li>
+      <li><strong>HLC</strong> 与 <strong>Spanner TrueTime</strong>：工业界怎么把物理时间重新拿回来</li>
+      <li>Lab 1：Go 与 Java 各实现一遍两种逻辑时钟，并写出冲突检测器</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>1.1 三种时钟，三种世界观</h2>
+  <div class="three">
+    <div class="card" style="margin:0;border-color:var(--s2)">
+      <div class="card-t" style="color:var(--s2)">墙上时钟</div>
+      <p style="font-size:13.5px"><code>time.Now()</code><br><code>System.currentTimeMillis()</code></p>
+      <p style="font-size:13.5px;margin-bottom:0">回答"现在几点"。可以转成人类日期、可以跨机器传递。<strong style="color:var(--s2)">会跳变、会倒退</strong>，两台机器上的读数不可比。</p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s3)">
+      <div class="card-t" style="color:var(--s3)">单调时钟</div>
+      <p style="font-size:13.5px"><code>time.Since(t0)</code><br><code>System.nanoTime()</code></p>
+      <p style="font-size:13.5px;margin-bottom:0">回答"过了多久"。<strong style="color:var(--s3)">保证只向前</strong>，但起点是任意的（通常是开机时刻），<strong>跨机器毫无意义</strong>——把 nanoTime 的值发给另一台机器是纯粹的 bug。</p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s1)">
+      <div class="card-t" style="color:var(--s1)">逻辑时钟</div>
+      <p style="font-size:13.5px">Lamport 时钟<br>向量时钟</p>
+      <p style="font-size:13.5px;margin-bottom:0">回答"谁可能影响了谁"。<strong style="color:var(--s1)">和物理时间完全无关</strong>，只由消息收发定义。跨机器可比，而且这是它存在的唯一目的。</p>
+    </div>
+  </div>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>为什么不能"把时钟调准就行了"</div>
+    <p style="margin-bottom:0">NTP 在广域网上的校准误差通常是<strong>几十毫秒</strong>；同机房内用 PTP 能做到微秒级，但需要专门硬件。而现代系统里两个需要区分先后的操作，间隔可能只有几十微秒。<em>误差比要区分的尺度还大，这个方向根本走不通。</em>Google 的 Spanner 是唯一认真走这条路的——他们在每个机房装了 GPS 接收器和原子钟，把误差压到个位数毫秒，然后<strong>用等待把剩下的误差消化掉</strong>（§1.7）。绝大多数系统买不起这个方案。</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>1.2 happens-before：不用时钟定义先后</h2>
+  <p>Lamport 1978 年那篇论文的核心洞察极其简单：<em>我们其实并不真正关心"物理上谁先发生"，我们关心的是"谁可能影响了谁"。</em>而"可能影响"这件事，完全可以只用消息收发来定义。</p>
+
+  <p>定义关系 <span class="chip">a → b</span>（读作 "a happens-before b"），由三条规则递归生成：</p>
+  <div class="axm"><div class="b">1</div><div><strong>同一进程内的顺序</strong>：如果 a 和 b 在同一个进程里，且 a 在 b 之前执行，那么 a → b。<br><span style="font-size:13px;color:var(--ink-3)">单机内部的顺序是确定的，这一条几乎是白送的。</span></div></div>
+  <div class="axm"><div class="b">2</div><div><strong>消息的因果</strong>：如果 a 是"发送消息 m"，b 是"接收消息 m"，那么 a → b。<br><span style="font-size:13px;color:var(--ink-3)">这是唯一一条跨进程的规则。信息只能通过消息流动，所以因果也只能通过消息流动。</span></div></div>
+  <div class="axm"><div class="b">3</div><div><strong>传递性</strong>：如果 a → b 且 b → c，那么 a → c。</div></div>
+
+  <p>然后是最关键的一步——<strong>定义"并发"</strong>：</p>
+  <div class="note">
+    <p style="margin-bottom:0">如果既不满足 a → b，也不满足 b → a，就称 a 和 b <strong>并发</strong>，记作 <span class="chip">a ∥ b</span>。</p>
+  </div>
+  <p>注意"并发"在这里<em>不是</em>"物理上同时发生"的意思。两个事件可能相隔三个小时，只要期间没有任何消息把它们串起来，它们就是并发的——因为<strong>谁都不可能影响谁</strong>，谁排在前面都无所谓。</p>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>这是偏序，不是全序 —— 本章最容易被跳过的一句话</div>
+    <p style="margin-bottom:0">全序（total order）意味着任意两个元素都能比较大小，比如整数。<strong>happens-before 是偏序（partial order）：有些事件对之间根本没有关系。</strong><br>
+    这不是理论缺陷，恰恰是它的价值所在：<em>它诚实地告诉你哪些顺序是真实存在的、哪些是你自己脑补的。</em>一个只按时间戳排序的系统会给你一个虚假的全序，让你以为一切都有确定顺序；happens-before 会明确指出"这两件事没有先后，你必须自己决定怎么办"——而这正是冲突检测的基础。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 时空图编辑器</div><div class="s">本章核心实验，请一定动手</div></div>
+    <div class="lab-b">
+      <div class="ctrl" style="margin-bottom:12px">
+        <div class="modes" id="m1">
+          <button data-m="ev" class="act">① 加事件</button>
+          <button data-m="msg">② 发消息</button>
+          <button data-m="cmp">③ 比较两个事件</button>
+          <button data-m="del">④ 删除</button>
+        </div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button id="b1demo">载入经典示例</button>
+        <button id="b1clr">清空</button>
+        <label class="sw"><input type="checkbox" id="c1lam" checked><span class="tr"></span>显示 Lamport 时钟</label>
+        <label class="sw"><input type="checkbox" id="c1vec" checked><span class="tr"></span>显示向量时钟</label>
+      </div>
+      <div class="stage grid-wrap" style="padding:10px"><svg id="sv1" viewBox="0 0 760 278" style="width:100%;min-width:660px;height:auto;display:block"></svg></div>
+      <p class="hint" id="h1">当前模式：<strong>加事件</strong> —— 在任意一条进程时间线的空位上点击，添加一个本地事件。</p>
+      <div class="card" id="rel1" style="margin-top:14px"></div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">1) 点「载入经典示例」，然后切到③，点 <span class="chip">P1</span> 上的第一个事件和 <span class="chip">P3</span> 上的最后一个事件——它们有因果关系吗？<br>
+        2) 找一对 <strong>Lamport 值不同、但实际并发</strong> 的事件（面板会用红字提示你）。这就是 Lamport 时钟的根本局限。<br>
+        3) 自己搭一个场景：让 P1 发消息给 P2，P2 再发给 P3，然后验证 P1 的发送事件确实 happens-before P3 的接收事件——即使它们从未直接通信。</p>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="s3">
+  <h2>1.3 Lamport 逻辑时钟</h2>
+  <p>happens-before 是一个关系，不是一个数。Lamport 接着问：能不能给每个事件贴一个整数 <code>L(e)</code>，让这个数<em>尊重</em>因果关系？算法只有三行：</p>
+  <div class="axm"><div class="b">1</div><div>每个进程维护一个计数器 <code>L</code>，初始为 0。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>任何本地事件（含发送）前</strong>：<code>L = L + 1</code>，把 <code>L</code> 作为该事件的时间戳。发送消息时把 <code>L</code> 一起带上。</div></div>
+  <div class="axm"><div class="b">3</div><div><strong>收到携带 <code>Lm</code> 的消息时</strong>：<code>L = max(L, Lm) + 1</code>，作为接收事件的时间戳。</div></div>
+
+<pre><code><span class="cm">// Go：完整实现只有这么多</span>
+<span class="kw">type</span> Lamport <span class="kw">struct</span>{ mu sync.Mutex; t <span class="kw">uint64</span> }
+
+<span class="kw">func</span> (l *Lamport) <span class="fn">Local</span>() <span class="kw">uint64</span> {          <span class="cm">// 本地事件 / 发送</span>
+    l.mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> l.mu.<span class="fn">Unlock</span>()
+    l.t++
+    <span class="kw">return</span> l.t
+}
+<span class="kw">func</span> (l *Lamport) <span class="fn">Recv</span>(remote <span class="kw">uint64</span>) <span class="kw">uint64</span> { <span class="cm">// 接收</span>
+    l.mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> l.mu.<span class="fn">Unlock</span>()
+    <span class="kw">if</span> remote > l.t { l.t = remote }
+    l.t++
+    <span class="kw">return</span> l.t
+}
+</code></pre>
+
+  <h3>它保证了什么，没保证什么</h3>
+  <div class="two">
+    <div class="card" style="border-color:var(--ok)">
+      <div class="card-t" style="color:var(--ok)">✓ 保证（时钟条件）</div>
+      <p style="margin-bottom:0;font-size:15px"><code>a → b</code> ⟹ <code>L(a) &lt; L(b)</code></p>
+      <p style="font-size:13.5px;margin-bottom:0">如果 a 因果先于 b，那 a 的时间戳一定更小。<strong>逆否命题才是实际用法</strong>：如果 <code>L(a) ≥ L(b)</code>，那么 a 绝不可能影响 b。</p>
+    </div>
+    <div class="card" style="border-color:var(--crit)">
+      <div class="card-t" style="color:var(--crit)">✗ 不保证（根本局限）</div>
+      <p style="margin-bottom:0;font-size:15px"><code>L(a) &lt; L(b)</code> <span style="color:var(--crit)">⇏</span> <code>a → b</code></p>
+      <p style="font-size:13.5px;margin-bottom:0">看到 3 &lt; 7，你<strong>无法</strong>断定前者影响了后者——它们可能完全并发，只是各自计数器碰巧到了那个值。<em>Lamport 时钟只能证伪，不能证实。</em></p>
+    </div>
+  </div>
+  <p>回到实验 1 去验证这一点：找两个来自不同进程、之间没有任何消息路径的事件，你会看到它们的 Lamport 值一定不同（除非碰巧相等），但比较面板会明确告诉你它们是并发的。<strong>这个信息差就是向量时钟要填补的空缺。</strong></p>
+
+  <h3>那 Lamport 时钟还有什么用？</h3>
+  <p>有一个非常实际的用途：<strong>构造一个任意但一致的全序</strong>。用二元组 <code>(L(e), 进程ID)</code> 按字典序排序，就得到了一个全序，而且它<em>兼容</em>因果序（不会把因果关系排反）。所有节点独立计算这个排序，结果完全一致。</p>
+  <ul>
+    <li>Lamport 在原论文里用它实现了<strong>分布式互斥锁</strong>：所有请求按 <code>(L, pid)</code> 排队，谁排第一谁拿锁。不需要中心协调者。</li>
+    <li>很多系统用它给操作打上"全局唯一且单调"的编号，比如事务 ID、消息序号。</li>
+    <li>注意这个全序是<em>任意的</em>——对并发事件它随便选了一个顺序。只要所有人选的一样，系统就能保持一致，哪怕这个顺序和物理现实不符。<em>一致比正确更容易达到，也常常已经足够。</em></li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2>1.4 向量时钟：把"并发"变成可检测的</h2>
+  <p>Lamport 时钟把每个事件压缩成一个整数，信息丢失了。向量时钟不压缩：<strong>N 个进程的系统里，每个事件带一个长度为 N 的向量</strong>，第 i 位记录"我所知道的进程 i 已经走到第几步"。</p>
+  <div class="axm"><div class="b">1</div><div>进程 <code>i</code> 维护向量 <code>V</code>，初始全 0。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>本地事件（含发送）</strong>：<code>V[i] = V[i] + 1</code>。发送时把整个 <code>V</code> 带上。</div></div>
+  <div class="axm"><div class="b">3</div><div><strong>收到向量 <code>Vm</code></strong>：先逐位取最大 <code>V[k] = max(V[k], Vm[k])</code>（对所有 k），再 <code>V[i] = V[i] + 1</code>。</div></div>
+
+  <p>比较规则（这里是全部的精髓）：</p>
+  <table>
+    <thead><tr><th style="width:30%">条件</th><th style="width:22%">结论</th><th>直觉</th></tr></thead>
+    <tbody>
+      <tr><td><code>∀k: V(a)[k] ≤ V(b)[k]</code> 且至少一位严格小于</td><td><strong>a → b</strong></td><td>b 知道 a 知道的一切，还多知道一些 ⇒ b 在 a 之后</td></tr>
+      <tr><td>反过来同理</td><td><strong>b → a</strong></td><td></td></tr>
+      <tr><td>两个方向都不成立<br><span style="font-size:12.5px;color:var(--ink-3)">即 a 有某位更大，b 也有某位更大</span></td><td><strong>a ∥ b（并发）</strong></td><td>各自知道对方不知道的事 ⇒ 谁都没影响谁 ⇒ <strong>这就是一次冲突</strong></td></tr>
+      <tr><td>逐位相等</td><td>同一个事件</td><td></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>关键升级：这次是充要条件</div>
+    <p style="margin-bottom:0"><code>a → b</code> <strong>⟺</strong> <code>V(a) &lt; V(b)</code><br>
+    Lamport 时钟只有 ⟹，向量时钟有 ⟺。<em>这意味着向量时钟能精确检测出并发</em>，而这正是所有多主复制系统（Dynamo、Riak、CouchDB）赖以工作的基础：检测到并发就说明有冲突，必须保留双方或交给应用合并，而不是闷头丢掉一个。</p>
+  </div>
+
+  <h3>代价与两个常见混淆</h3>
+  <ul>
+    <li><strong>空间 O(N)</strong>：每个值都要带一个和节点数等长的向量。节点数上千时不可接受。工程上的缓解：只给<em>写入过的副本</em>记条目、定期修剪陈旧条目（Riak 的做法）、或者改用<strong>点式版本向量（dotted version vector）</strong>。</li>
+    <li><strong>向量时钟 vs 版本向量</strong>：两者算法几乎一样但用途不同。向量时钟给<em>事件</em>编号（每个事件递增），版本向量给<em>数据副本的版本</em>编号（每次写入递增）。数据库里说的通常是后者，但大家习惯都叫向量时钟。知道有这个区分就够了。</li>
+    <li><strong>它不解决冲突，只发现冲突</strong>。发现之后怎么办有三条路：交给应用（Dynamo 的 siblings，购物车做并集）、用 CRDT 保证自动合并（Part 2）、或者干脆用共识把并发消灭掉（Part 3）。</li>
+  </ul>
+</section>
+
+<section id="s5">
+  <h2>1.5 last-write-wins：一个静默的数据杀手</h2>
+  <p>现在把前面所有东西接到你的实际经验上。<strong>LWW（最后写入者获胜）</strong>是最简单的冲突解决策略：给每个写入打上时间戳，冲突时保留时间戳大的那个。Cassandra 默认就这么干，很多自研的多机房同步方案也这么干。</p>
+  <p>它的问题是：<em>它把一个偏序问题当成全序问题来解</em>。两个并发写入本来没有先后，LWW 强行用物理时间戳给它们排序——而物理时间戳恰恰是不可靠的。结果就是：</p>
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>后写的数据被判成"旧值"丢弃，没有任何日志，没有任何报错</div>
+    <p style="margin-bottom:0">用户点了保存，界面显示成功，数据库里也确实写进去了，几秒后被另一个副本的同步覆盖掉。<strong>这是分布式系统里最难排查的一类故障</strong>，因为它不留痕迹。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · 静默丢写复现，以及向量时钟怎么抓住它</div><div class="s">同一次并发写，两种冲突策略</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>副本 R1 时钟偏移 <b id="l2o">+120 ms</b></label><input type="range" id="r2o" min="-300" max="300" step="10" value="120"></div>
+        <div class="f"><label>C1 与 C2 写入的真实间隔 <b id="l2g">60 ms</b></label><input type="range" id="r2g" min="0" max="400" step="10" value="60"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b2run">重放这次并发写</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv2" viewBox="0 0 700 208" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="two" style="margin-top:16px">
+        <div class="card" style="margin:0" id="c2lww"></div>
+        <div class="card" style="margin:0" id="c2vv"></div>
+      </div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">1) 保持默认参数重放：C1 <strong>先</strong>写、C2 <strong>后</strong>写，但 R1 时钟快 120ms，于是 LWW 保留了先写的那条，后写的被丢弃。<br>
+        2) 把时钟偏移拖到 0，再拖到 −300ms，观察 LWW 的结论如何随一个<em>与业务毫无关系的参数</em>翻转。<br>
+        3) 全程盯住右边那张卡：<strong>无论时钟怎么歪，向量时钟的判定始终是"并发"</strong>——它不假装知道答案，而是把冲突暴露出来。这就是它比 LWW 强的全部意义。</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>那到底什么时候可以用 LWW？</h3>
+  <p>可以用，但要满足条件——把这三条当成一张检查表：</p>
+  <ul>
+    <li><strong>写入是幂等且可丢的</strong>：比如"最后一次心跳时间"、"最近一次在线状态"。丢一次无所谓，下一次覆盖就好。</li>
+    <li><strong>同一个 key 极少并发写</strong>：单一写入者，或者天然按用户分片，冲突概率本就趋近于零。</li>
+    <li><strong>时间戳由单一来源生成</strong>：比如统一由某个 leader 或发号器打戳，而不是各个客户端用自己的本地时钟。这一条能消掉大部分风险。</li>
+  </ul>
+  <p>反过来，<strong>凡是"累加"、"追加"、"集合增删"语义的数据，用 LWW 一定会丢东西</strong>——购物车、点赞列表、余额、计数器。这类数据要么用 CRDT（Part 2 会实现一个），要么走共识串行化（Part 3）。</p>
+</section>
+<section id="s6">
+  <h2>1.6 混合逻辑时钟 HLC：把物理时间赎回来</h2>
+  <p>逻辑时钟解决了因果，但丢掉了一样东西：<strong>可读性和可比性</strong>。Lamport 值 <code>84213</code> 对应现实中的什么时刻？不知道。你没法问"给我 10:00 那一刻的数据快照"，也没法给日志排序时和监控图表对齐。</p>
+  <p>HLC（Hybrid Logical Clock，2014）的想法很聪明：<strong>时间戳是二元组 <code>(l, c)</code></strong>，<code>l</code> 尽量贴着物理时钟走，<code>c</code> 是一个小计数器，只在物理时钟"不够用"时才递增。</p>
+  <div class="axm"><div class="b">1</div><div><strong>本地事件 / 发送</strong>：<code>l' = max(l, pt)</code>（pt 是当前物理时钟）。若 <code>l' == l</code> 则 <code>c++</code>，否则 <code>c = 0</code>。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>收到 <code>(lm, cm)</code></strong>：<code>l' = max(l, lm, pt)</code>。<br>若 <code>l' == l == lm</code> 则 <code>c = max(c, cm) + 1</code>；若 <code>l' == l</code> 则 <code>c++</code>；若 <code>l' == lm</code> 则 <code>c = cm + 1</code>；否则 <code>c = 0</code>。</div></div>
+  <p>性质：<code>(l,c)</code> 按字典序比较，<strong>满足 Lamport 时钟条件</strong>（a→b ⟹ HLC(a) &lt; HLC(b)），同时 <code>l</code> 与真实物理时间的偏差有界（不超过时钟误差上限）。它是<em>单调的</em>——即使物理时钟回拨，<code>l</code> 也绝不倒退，回拨期间靠 <code>c</code> 递增撑住。</p>
+  <p>CockroachDB、YugabyteDB、MongoDB（4.0 起的因果一致性会话）都用 HLC。它的甜点位置是：<em>不需要原子钟，也能同时拿到因果正确性和大致可用的物理时间</em>。</p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 时钟回拨时的三种时钟</div><div class="s">看哪一种活了下来</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>物理时钟回拨量 <b id="l3j">−500 ms</b></label><input type="range" id="r3j" min="-2000" max="0" step="100" value="-500"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b3ev">产生一个本地事件</button>
+        <button id="b3jump">让物理时钟回拨</button>
+        <button id="b3clr">重置</button>
+      </div>
+      <div id="t3"></div>
+      <div class="note crit" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--crit)"></span>你要观察的现象</div>
+        <p style="margin-bottom:0">先连点几次「产生一个本地事件」，再点「让物理时钟回拨」，然后继续产生事件。<br>
+        • <strong>纯物理时钟</strong>那一列会出现<span style="color:var(--crit)">倒退</span>——后发生的事件时间戳更小，任何基于时间戳的排序、TTL、MVCC 快照都会错乱。<br>
+        • <strong>Lamport</strong> 那一列始终单调，但数值和现实时间毫无关系，你没法拿它做时间范围查询。<br>
+        • <strong>HLC</strong> 那一列既单调、又贴近物理时间：回拨期间 <code>l</code> 冻结不动，靠 <code>c</code> 递增维持顺序；等物理时钟追上来后 <code>c</code> 自动归零。<em>两全其美，代价只是多一个整数。</em></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>1.7 TrueTime：Google 花钱买来的确定性</h2>
+  <p>Spanner 想要的东西比因果一致更强，叫<strong>外部一致性（external consistency）</strong>：如果事务 T1 在现实世界中先于 T2 提交（哪怕两者毫无因果关系、由地球两端的客户端发起），那么系统给出的时间戳必须满足 <code>ts(T1) &lt; ts(T2)</code>。逻辑时钟做不到这一点——它对并发事件不做承诺。</p>
+  <p>Google 的解法是承认时钟有误差，然后<strong>把误差显式建模出来</strong>。TrueTime 的 API 不返回一个时刻，而返回一个区间：</p>
+<pre><code><span class="fn">TT.now</span>() → [earliest, latest]   <span class="cm">// 真实时刻一定落在这个区间内</span>
+                                <span class="cm">// 区间宽度 ε 通常是 1~7 ms</span>
+</code></pre>
+  <p>底层靠每个机房里的 <strong>GPS 接收器 + 原子钟</strong>（两种独立失效模式的时间源互相校验），把 ε 压到个位数毫秒。然后是关键的一招——<strong>commit wait</strong>：</p>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>commit wait：用等待换确定性</div>
+    <p style="margin-bottom:0">事务选定提交时间戳 <code>s = TT.now().latest</code> 之后，<strong>不立刻返回给客户端，而是主动等待，直到 <code>TT.now().earliest &gt; s</code></strong>——也就是等到"真实时间确定已经越过 s"为止。这段等待通常就是 ε（几毫秒）。<br>
+    等待之后，任何在此之后开始的事务拿到的时间戳一定大于 s。<em>时钟误差被转化成了一段可控的延迟。</em>这是我最喜欢的一个工程权衡：不去消灭不确定性，而是给它标价，然后买单。</p>
+  </div>
+  <p>代价也很直白：每个事务的提交延迟增加约 2ε，而且你需要在每个机房部署 GPS 天线和原子钟。<strong>对绝大多数团队，HLC 是那个够用且免费的答案。</strong>但理解 TrueTime 的价值在于——它划出了这条路的终点：物理时钟路线能走多远，取决于你愿意为 ε 花多少钱。</p>
+</section>
+
+<section id="s8">
+  <h2>1.8 通向共识：从"知道顺序"到"约定顺序"</h2>
+  <p>这一章解决的是<strong>观测问题</strong>：给定已经发生的事件，我怎么判断它们的因果关系。但还有一个更难的问题没解决——<strong>决策问题</strong>：怎么让所有节点<em>事先约定</em>一个共同的顺序，而不只是事后各自分析。</p>
+  <p>这个更强的目标叫<strong>全序广播（total order broadcast）</strong>，也叫原子广播：</p>
+  <ul>
+    <li><strong>可靠投递</strong>：消息不丢；如果一个节点收到了某条消息，所有正常节点最终都会收到。</li>
+    <li><strong>全序投递</strong>：所有节点以<em>完全相同的顺序</em>收到所有消息——包括那些互相并发的消息。</li>
+  </ul>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>这条线索会一直贯穿到 Part 3 和 Part 5</div>
+    <p style="margin-bottom:0">全序广播和<strong>共识</strong>在计算上是等价的（可以互相归约）。而"把所有写操作以相同顺序投递给所有副本"正是<strong>状态机复制</strong>的定义。所以：<br>
+    <span class="chip">全序广播</span> ≡ <span class="chip">共识</span> ≡ <span class="chip">复制日志</span> ——三个名字，同一件事。<br>
+    Kafka 的分区内有序、ZooKeeper 的 ZAB、Raft 的日志复制，全都是这件事的不同实现。你在 Part 3 手写 Raft 的时候，写的就是一个全序广播协议。</p>
+  </div>
+  <p>为什么这一章的逻辑时钟不够？因为 Lamport 时钟给出的全序 <code>(L, pid)</code> 是<strong>事后</strong>算出来的——每个节点必须先收到所有相关消息才能确定排序，而在异步网络里你永远不知道"是不是还有一条更早的消息在路上"。要真正确定下来，就必须有节点<em>做出决定并让所有人接受</em>，而这需要多数派投票。<strong>这就是共识算法存在的理由。</strong></p>
+</section>
+
+<section id="s9">
+  <h2>1.9 自测题</h2>
+  <p>老规矩：先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. 用一句话说清 happens-before 和"物理上先发生"的区别。</summary>
+    <div class="a"><p>happens-before 描述的是<strong>"可能影响"</strong>，物理先后描述的是<strong>"时钟读数大小"</strong>。</p>
+    <p style="margin-bottom:0">两个事件可以相隔三小时却是"并发"的（期间没有任何消息把它们串起来，谁都不可能影响谁）；也可以物理上几乎同时，却有明确的 happens-before 关系（一个是发送、一个是接收）。<em>因果关系只沿着消息流动。</em></p></div></details>
+
+  <details class="q"><summary>2. 为什么说 happens-before 是偏序而不是全序？这是缺陷还是特性？</summary>
+    <div class="a"><p>因为存在互相无法比较的事件对（并发事件）。</p>
+    <p style="margin-bottom:0">这是<strong>特性</strong>。偏序诚实地标出了"哪些顺序是真实的，哪些是你脑补的"。用时间戳强行造出的全序看起来更方便，但那个顺序里有一部分是虚构的——LWW 静默丢数据正是因为把虚构的顺序当真了。<em>发现"这两件事没有先后"本身就是一条重要信息，它等价于"这里有一个冲突需要处理"。</em></p></div></details>
+
+  <details class="q"><summary>3. <code>L(a) &lt; L(b)</code> 能推出 a → b 吗？<code>L(a) ≥ L(b)</code> 能推出什么？</summary>
+    <div class="a"><p><strong>前者不能。</strong>Lamport 时钟只保证 <code>a → b ⟹ L(a) &lt; L(b)</code>，反向不成立——两个并发事件的 Lamport 值也可能一大一小。</p>
+    <p style="margin-bottom:0"><strong>后者能，而且这才是它的实际用法</strong>：由逆否命题，<code>L(a) ≥ L(b)</code> ⟹ <code>a 不 happens-before b</code>，也就是<em>a 绝不可能影响 b</em>。Lamport 时钟只能证伪，不能证实。</p></div></details>
+
+  <details class="q"><summary>4. 向量时钟 <code>V(a)=[2,1,0]</code>、<code>V(b)=[1,3,0]</code>，两个事件是什么关系？</summary>
+    <div class="a"><p><strong>并发。</strong>a 的第 0 位更大（2 &gt; 1），b 的第 1 位更大（3 &gt; 1）——两个方向都不满足"逐位 ≤"，所以互不 happens-before。</p>
+    <p style="margin-bottom:0">直觉：a 知道进程 0 走了 2 步而 b 只知道 1 步；反过来 b 知道进程 1 走了 3 步而 a 只知道 1 步。<em>各自都知道对方不知道的事，说明它们之间没有信息流动过。</em>在数据库里，这意味着一次真实的写冲突。</p></div></details>
+
+  <details class="q"><summary>5. Cassandra 用 last-write-wins。什么情况下这是安全的，什么情况下一定会丢数据？</summary>
+    <div class="a"><p><strong>相对安全</strong>：写入幂等且可丢（心跳时间、在线状态）、同 key 极少并发写、时间戳由单一来源生成（leader 或发号器，而非各客户端本地时钟）。</p>
+    <p style="margin-bottom:0"><strong>一定丢</strong>：语义是"累加 / 追加 / 集合增删"的数据——购物车、点赞列表、余额、计数器。这类数据的两次并发写在语义上应该<em>合并</em>，而 LWW 只会二选一。解法是 CRDT（Part 2）或走共识串行化（Part 3）。</p></div></details>
+
+  <details class="q"><summary>6. 向量时钟这么强，为什么工业界不到处都用？</summary>
+    <div class="a"><p>空间成本 <strong>O(N)</strong>：每个数据版本都要携带一个与节点数等长的向量。几十个节点还行，上千个节点就不可接受了；而且节点会上下线，向量里会堆积陈旧条目。</p>
+    <p style="margin-bottom:0">缓解手段：只为实际写过的副本保留条目、定期修剪、或改用点式版本向量（DVV）。更重要的是<strong>另一条路</strong>——如果系统本来就用共识把所有写串行化（单 leader 复制），那就根本不存在并发写，也就不需要检测冲突。<em>向量时钟是"允许多主写入"这个设计选择的配套成本。</em></p></div></details>
+
+  <details class="q"><summary>7. HLC 相比纯 Lamport 时钟多给了什么？相比纯物理时钟又多给了什么？</summary>
+    <div class="a"><p><strong>相比 Lamport</strong>：时间戳的高位贴着物理时间走，误差有界。于是你可以做"读取 10:00 那一刻的快照"这种时间范围查询，日志也能和监控图表对齐。纯 Lamport 值是个没有现实含义的整数。</p>
+    <p style="margin-bottom:0"><strong>相比物理时钟</strong>：保证单调 + 满足时钟条件（a→b ⟹ HLC(a)&lt;HLC(b)）。物理时钟会因 NTP 回拨而倒退，也不尊重因果。<em>HLC 用一个额外的小计数器把两边的优点都拿到了，这是它被 CockroachDB / MongoDB 采用的原因。</em></p></div></details>
+
+  <details class="q"><summary>8. Spanner 的 commit wait 在等什么？为什么必须等？</summary>
+    <div class="a"><p>事务选定提交时间戳 <code>s = TT.now().latest</code> 后，等待直到 <code>TT.now().earliest &gt; s</code>——也就是等到"真实时间已确定越过 s"。</p>
+    <p style="margin-bottom:0">必须等，是因为要保证<strong>外部一致性</strong>：任何在本事务提交<em>之后</em>才开始的事务，拿到的时间戳必须更大。如果不等就返回，下一个事务可能在时钟误差窗口内拿到一个更小的时间戳，造成"后提交的事务时间戳更早"。<em>本质上是把时钟不确定性 ε 转换成了约 2ε 的提交延迟——不消灭不确定性，而是给它标价买单。</em></p></div></details>
+
+  <details class="q"><summary>9. 为什么逻辑时钟不足以实现全序广播？</summary>
+    <div class="a"><p>因为 Lamport 全序 <code>(L, pid)</code> 是<strong>事后</strong>算出来的。一个节点收到时间戳为 7 的消息时，无法确定是否还有一条时间戳为 5 的消息正在路上——异步网络里没有延迟上界。要安全地投递，它必须等到确认"所有更早的消息都已到达"，而这个条件永远无法在有限时间内确定。</p>
+    <p style="margin-bottom:0">要真正定下来，必须有人<em>做出决定并让多数派接受</em>。这就是共识。全序广播 ≡ 共识 ≡ 复制日志，三者可以互相归约。</p></div></details>
+
+  <details class="q"><summary>10. 【综合】多机房部署，用户在北京改了昵称，几乎同时在上海改了头像，两地各写各的副本再互相同步。用 LWW 会怎样？用向量时钟会怎样？你实际会怎么设计？</summary>
+    <div class="a"><p><strong>LWW（整行覆盖）</strong>：两次写各自携带本地时间戳，同步时时间戳大的整行获胜——<em>另一个字段的修改被连带丢弃</em>。用户会看到"我明明改了头像，怎么没了"。这是多机房 LWW 最典型的事故。</p>
+    <p><strong>向量时钟</strong>：判定为并发，产生两个 siblings，把冲突暴露给应用层。应用可以按字段合并（昵称取一边、头像取另一边），因为这两个字段本来就不冲突。</p>
+    <p style="margin-bottom:0"><strong>实际设计</strong>，按优先级：<br>
+    ① <strong>缩小冲突单元</strong>——按字段级而非整行做 LWW，昵称和头像各自独立打戳。绝大多数"多机房覆盖"事故靠这一条就消失了。<br>
+    ② <strong>把用户数据按归属地分片</strong>，同一个用户的写入永远路由到同一个主机房。没有并发写就没有冲突，这是最省事的办法。<br>
+    ③ 真的需要多地同时可写时，用向量时钟 + 字段级合并，或者对能表达成 CRDT 的字段（集合、计数器）用 CRDT。<br>
+    ④ 强一致要求高的部分（比如账户余额）走共识，接受跨地域的延迟。<br>
+    <em>注意①和②都不是"更好的算法"，而是"把问题设计掉"。这在工程上通常比引入向量时钟更划算。</em></p></div></details>
+</section>
+
+<section id="s10">
+  <h2>Lab 1 · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/</code>，Go 与 Java 各一份，实验内容完全对应。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Lab 1-1</strong><br>Lamport 时钟</td><td>三个进程互发消息，打印每个事件的 Lamport 时间戳，验证 <code>a→b ⟹ L(a)&lt;L(b)</code>，并<strong>找出反向不成立的反例</strong>。</td></tr>
+      <tr><td><strong>Lab 1-2</strong><br>向量时钟</td><td>同一组事件用向量时钟重跑，实现 <code>Compare()</code> 返回 before / after / concurrent，把 Lamport 判断错的那些对全部抓出来。</td></tr>
+      <tr><td><strong>Lab 1-3</strong><br>LWW 丢写</td><td>两个副本 + 可配置时钟偏移，跑 N 轮并发写。你会发现一个更狠的事实：<strong>LWW 每一轮都丢掉一条写入</strong>（因为它必须二选一），其中一部分丢的还是真实更晚的那条。换成版本向量重跑，冲突全部被检出，<strong>丢弃数为 0</strong>。</td></tr>
+      <tr><td><strong>Lab 1-4</strong><br>HLC</td><td>实现 HLC，注入时钟回拨，验证它<strong>始终单调</strong>且与物理时间的偏差有界。对照纯物理时钟的倒退次数。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab01 &amp;&amp; go run .
+
+<span class="cm"># Java（JDK 17+，单文件源码模式）</span>
+cd ~/Code/distributed-systems-course/java/lab01 &amp;&amp; java Lab01.java
+
+<span class="cm"># 调参：偏移越大、间隔越小，LWW 丢得越多</span>
+go run . -skew 200 -gap 50 -n 500
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完 Lab 1 后回答</div>
+    <p style="margin-bottom:0">把 <code>-skew</code> 设成 0（时钟完全同步），LWW 还会丢数据吗？<em>先猜再跑。</em><br><span style="font-size:13px;color:var(--ink-3)">提示：想清楚 LWW 面对两条<strong>并发</strong>写入时，有没有可能把两条都保留下来。</span></p>
+  </div>
+
+  <h3>下一章预告</h3>
+  <p><strong>Part 2 · 复制与一致性模型。</strong>这一章你学会了<em>判断</em>顺序，下一章要处理的是：当同一份数据存在多个副本时，读到的到底是谁的版本？我们会把"一致性"这个被滥用的词拆成一个精确的谱系（线性一致 → 顺序一致 → 因果一致 → 最终一致），讲清楚 CAP 的正确读法和它为什么被广泛误解，然后你会亲手实现一个 Quorum KV 存储，注入网络分区，观察三种经典的复制延迟异常。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const NS="http://www.w3.org/2000/svg";
+function el(t,a,x){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}
+function cv(n){return getComputedStyle(document.body).getPropertyValue(n).trim();}
+
+/* ===== 主题 / 进度 / 目录 ===== */
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");draw1();draw2();};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* ══════════════════════════════════════════════════════════════════════
+   实验 1 · 时空图编辑器
+   ══════════════════════════════════════════════════════════════════════ */
+const NP=3, COLS=13, X0=78, X1=730, Y=[62,140,218], DX=(X1-X0)/(COLS-1);
+const PC=["--s1","--s3","--s7"], PN=["P1","P2","P3"];
+const E={list:[],next:1,mode:"ev",pend:null,sel:[]};
+const xOf=t=>X0+t*DX;
+
+function addLocal(p,t){ if(at(p,t))return null; const e={id:E.next++,p,t,kind:"local",link:0};E.list.push(e);return e; }
+function at(p,t){ return E.list.find(e=>e.p===p&&e.t===t); }
+function byId(i){ return E.list.find(e=>e.id===i); }
+function removeEv(e){
+  const ids=[e.id]; if(e.link) ids.push(e.link);
+  E.list=E.list.filter(x=>!ids.includes(x.id));
+  E.list.forEach(x=>{ if(x.link&&!byId(x.link)){x.link=0;x.kind="local";} });
+  E.sel=E.sel.filter(i=>!ids.includes(i));
+}
+function computeClocks(){
+  const ev=E.list.slice().sort((a,b)=>a.t-b.t||a.p-b.p);
+  const L=[0,0,0], V=[[0,0,0],[0,0,0],[0,0,0]];
+  ev.forEach(e=>{
+    if(e.kind==="recv"){
+      const s=byId(e.link);
+      if(s&&s.L!=null){ L[e.p]=Math.max(L[e.p],s.L); for(let k=0;k<NP;k++)V[e.p][k]=Math.max(V[e.p][k],s.V[k]); }
+    }
+    L[e.p]++; V[e.p][e.p]++;
+    e.L=L[e.p]; e.V=V[e.p].slice();
+  });
+}
+function vLE(a,b){ for(let k=0;k<NP;k++) if(a[k]>b[k]) return false; return true; }
+function vEq(a,b){ for(let k=0;k<NP;k++) if(a[k]!==b[k]) return false; return true; }
+function relation(a,b){
+  if(vEq(a.V,b.V)) return "same";
+  if(vLE(a.V,b.V)) return "ab";
+  if(vLE(b.V,a.V)) return "ba";
+  return "conc";
+}
+function name(e){ return PN[e.p]+"@t"+e.t; }
+
+function draw1(){
+  computeClocks();
+  const svg=$("#sv1"); svg.innerHTML="";
+  const defs=el("defs",{});
+  ["--s4","--ink-3"].forEach((c,i)=>{
+    const m=el("marker",{id:"a1"+i,viewBox:"0 0 10 10",refX:9,refY:5,markerWidth:5,markerHeight:5,orient:"auto"});
+    m.appendChild(el("path",{d:"M0,0 L10,5 L0,10 z",fill:cv(c)})); defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+  // 列刻度
+  for(let t=0;t<COLS;t++){
+    svg.appendChild(el("line",{x1:xOf(t),y1:Y[0]-26,x2:xOf(t),y2:Y[2]+26,stroke:cv("--grid"),"stroke-width":1,opacity:.55}));
+    svg.appendChild(el("text",{x:xOf(t),y:Y[2]+44,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--sans")},"t"+t));
+  }
+  // 进程线
+  for(let p=0;p<NP;p++){
+    svg.appendChild(el("line",{x1:X0-26,y1:Y[p],x2:X1+16,y2:Y[p],stroke:cv("--axis"),"stroke-width":2,"marker-end":"url(#a11)"}));
+    svg.appendChild(el("text",{x:X0-38,y:Y[p]+5,fill:cv(PC[p]),"font-size":13,"font-weight":700,"text-anchor":"end","font-family":cv("--sans")},PN[p]));
+  }
+  // 消息箭头
+  E.list.filter(e=>e.kind==="recv"&&byId(e.link)).forEach(e=>{
+    const s=byId(e.link);
+    svg.appendChild(el("line",{x1:xOf(s.t)+11,y1:Y[s.p]+(Y[e.p]>Y[s.p]?9:-9),x2:xOf(e.t)-9,y2:Y[e.p]+(Y[e.p]>Y[s.p]?-11:11),
+      stroke:cv("--s4"),"stroke-width":1.8,"marker-end":"url(#a10)",opacity:.9}));
+  });
+  // 事件
+  const showL=$("#c1lam").checked, showV=$("#c1vec").checked;
+  E.list.forEach(e=>{
+    const x=xOf(e.t),y=Y[e.p],selIdx=E.sel.indexOf(e.id);
+    if(selIdx>=0) svg.appendChild(el("circle",{cx:x,cy:y,r:16,fill:"none",stroke:cv("--warn"),"stroke-width":2}));
+    svg.appendChild(el("circle",{cx:x,cy:y,r:11,fill:cv(PC[e.p]),stroke:cv("--plane"),"stroke-width":2,style:"cursor:pointer"}));
+    if(showL) svg.appendChild(el("text",{x:x,y:y+4,fill:"#fff","font-size":11,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans"),style:"pointer-events:none"},e.L));
+    if(showV) svg.appendChild(el("text",{x:x,y:y+27,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--mono"),style:"pointer-events:none"},"["+e.V.join(",")+"]"));
+    if(selIdx>=0) svg.appendChild(el("text",{x:x,y:y-19,fill:cv("--warn"),"font-size":10,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},selIdx===0?"a":"b"));
+    if(E.pend===e.id) svg.appendChild(el("circle",{cx:x,cy:y,r:19,fill:"none",stroke:cv("--s4"),"stroke-width":2,"stroke-dasharray":"3 3"}));
+  });
+  panel1();
+}
+function panel1(){
+  const box=$("#rel1");
+  if(E.sel.length<2){
+    box.innerHTML='<div class="card-t">关系判定</div><p style="margin:0;font-size:13.5px;color:var(--ink-3)">'+
+      (E.mode==="cmp"?"点击两个事件来比较它们。":"切到模式③「比较两个事件」，然后点任意两个事件。")+'</p>';
+    return;
+  }
+  const a=byId(E.sel[0]),b=byId(E.sel[1]);
+  if(!a||!b){E.sel=[];return;}
+  const r=relation(a,b);
+  const verdict={same:"同一个事件",ab:"<strong style='color:var(--ok)'>a → b</strong>（a happens-before b）",
+    ba:"<strong style='color:var(--ok)'>b → a</strong>（b happens-before a）",
+    conc:"<strong style='color:var(--crit)'>a ∥ b（并发）</strong> —— 谁都没有影响谁"}[r];
+  const lam = a.L<b.L?"L(a) &lt; L(b) ⇒ Lamport 认为 a 在前"
+            : a.L>b.L?"L(a) &gt; L(b) ⇒ Lamport 认为 b 在前"
+            : "L(a) = L(b) ⇒ Lamport 无法区分";
+  const misled = r==="conc" && a.L!==b.L;
+  box.innerHTML='<div class="card-t">关系判定</div><dl class="rel">'+
+    '<dt>事件 a</dt><dd><span class="chip">'+name(a)+'</span> Lamport <span class="vt">'+a.L+'</span>　向量 <span class="vt">['+a.V.join(",")+']</span></dd>'+
+    '<dt>事件 b</dt><dd><span class="chip">'+name(b)+'</span> Lamport <span class="vt">'+b.L+'</span>　向量 <span class="vt">['+b.V.join(",")+']</span></dd>'+
+    '<dt>向量时钟判定</dt><dd>'+verdict+'　<span style="color:var(--ink-3);font-size:13px">（充要，这是真相）</span></dd>'+
+    '<dt>Lamport 判定</dt><dd>'+lam+'</dd></dl>'+
+    (misled?'<div class="note crit" style="margin:12px 0 0"><div class="note-h"><span class="dot" style="background:var(--crit)"></span>抓到一个 Lamport 时钟的盲区</div><p style="margin-bottom:0">这两个事件<strong>实际是并发的</strong>，但它们的 Lamport 值一大一小。如果你据此认为「'+
+      (a.L<b.L?name(a)+' 发生在 '+name(b)+' 之前':name(b)+' 发生在 '+name(a)+' 之前')+'」，你就错了——它们之间没有任何消息路径，谁都不可能影响谁。<br><em>这正是 §1.3 说的：Lamport 时钟只能证伪，不能证实。</em></p></div>':'')+
+    (r==="ab"||r==="ba"?'<div class="note ok" style="margin:12px 0 0"><p style="margin-bottom:0">存在一条从 '+(r==="ab"?name(a)+" 到 "+name(b):name(b)+" 到 "+name(a))+' 的因果路径（沿着进程时间线和消息箭头走得通）。此时 Lamport 判定与向量时钟一致——<strong>有因果关系时两者永远不会矛盾</strong>。</p></div>':'');
+}
+// 坐标 → (p,t)
+function hit(evt){
+  const svg=$("#sv1"),pt=svg.createSVGPoint();
+  pt.x=evt.clientX;pt.y=evt.clientY;
+  const q=pt.matrixTransform(svg.getScreenCTM().inverse());
+  let p=-1,best=1e9;
+  Y.forEach((y,i)=>{const d=Math.abs(q.y-y);if(d<best&&d<34){best=d;p=i;}});
+  const t=Math.round((q.x-X0)/DX);
+  if(p<0||t<0||t>=COLS) return null;
+  return {p,t};
+}
+$("#sv1").addEventListener("click",evt=>{
+  const h=hit(evt); if(!h) return;
+  const e=at(h.p,h.t);
+  if(E.mode==="ev"){ if(!e) addLocal(h.p,h.t); }
+  else if(E.mode==="del"){ if(e) removeEv(e); }
+  else if(E.mode==="cmp"){ if(e){ E.sel=[...E.sel.filter(i=>i!==e.id),e.id].slice(-2); } }
+  else if(E.mode==="msg"){
+    if(E.pend==null){ if(e) E.pend=e.id; }
+    else {
+      const s=byId(E.pend);
+      if(!s){E.pend=null;}
+      else if(e||h.p===s.p||h.t<=s.t){ hintMsg(h,s,e); }
+      else { const r={id:E.next++,p:h.p,t:h.t,kind:"recv",link:s.id};
+             E.list.push(r); s.kind="send"; s.link=r.id; E.pend=null; }
+    }
+  }
+  draw1(); updHint();
+});
+function hintMsg(h,s,e){
+  const box=$("#h1");
+  box.innerHTML='当前模式：<strong>发消息</strong> —— '+
+    (e?'<span style="color:var(--crit)">目标格子已经有事件了，请选一个空位。</span>'
+      :h.p===s.p?'<span style="color:var(--crit)">消息必须发给<strong>另一个</strong>进程。</span>'
+      :'<span style="color:var(--crit)">接收时刻必须晚于发送时刻（t 要更大）。</span>');
+}
+function updHint(){
+  const m={ev:'当前模式：<strong>加事件</strong> —— 在任意一条进程时间线的空位上点击，添加一个本地事件。',
+    msg:E.pend?'当前模式：<strong>发消息</strong> —— 已选中发送方 <span class="chip">'+name(byId(E.pend))+'</span>，现在点<strong>另一个进程</strong>上一个更靠右的空位作为接收点。':
+        '当前模式：<strong>发消息</strong> —— 先点一个已有事件作为发送方。',
+    cmp:'当前模式：<strong>比较</strong> —— 依次点两个事件，下方面板会给出向量时钟判定与 Lamport 判定的对照。',
+    del:'当前模式：<strong>删除</strong> —— 点击事件将其删除（成对的收发事件会一起删掉）。'}[E.mode];
+  $("#h1").innerHTML=m;
+}
+$$("#m1 button").forEach(b=>b.onclick=()=>{
+  $$("#m1 button").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act"); E.mode=b.dataset.m; E.pend=null;
+  if(E.mode!=="cmp") E.sel=[];
+  draw1(); updHint();
+});
+$("#c1lam").onchange=draw1; $("#c1vec").onchange=draw1;
+$("#b1clr").onclick=()=>{E.list=[];E.next=1;E.pend=null;E.sel=[];draw1();updHint();};
+$("#b1demo").onclick=()=>{
+  E.list=[];E.next=1;E.pend=null;E.sel=[];
+  const A=addLocal(0,1), Ev=addLocal(1,0), H=addLocal(2,2);
+  const mk=(sp,st,rp,rt)=>{const s=addLocal(sp,st),r=addLocal(rp,rt);s.kind="send";s.link=r.id;r.kind="recv";r.link=s.id;};
+  mk(0,3,1,5);   // P1 → P2
+  mk(2,6,0,8);   // P3 → P1
+  mk(1,7,2,9);   // P2 → P3
+  addLocal(0,11); addLocal(2,12);
+  draw1(); updHint();
+};
+$("#b1demo").click();
+
+/* ══════════════════════════════════════════════════════════════════════
+   实验 2 · LWW 静默丢写 vs 版本向量
+   ══════════════════════════════════════════════════════════════════════ */
+const S2={played:false};
+function p2(){ return {skew:+$("#r2o").value, gap:+$("#r2g").value}; }
+function draw2(){
+  const {skew,gap}=p2();
+  $("#l2o").textContent=(skew>=0?"+":"")+skew+" ms";
+  $("#l2g").textContent=gap+" ms";
+  const svg=$("#sv2"); svg.innerHTML="";
+  const W=700, L=96, R=660, T0=140, TB=1000;              // 真实时间轴 0..TB ms 映射到 L..R
+  const xt=ms=>L+(ms/TB)*(R-L);
+  const yA=52, yB=116, yAx=162;
+  // 轴
+  svg.appendChild(el("line",{x1:L,y1:yAx,x2:R,y2:yAx,stroke:cv("--axis"),"stroke-width":1.5}));
+  for(let ms=0;ms<=TB;ms+=200){
+    svg.appendChild(el("line",{x1:xt(ms),y1:yAx-4,x2:xt(ms),y2:yAx+4,stroke:cv("--axis")}));
+    svg.appendChild(el("text",{x:xt(ms),y:yAx+18,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--sans")},ms+"ms"));
+  }
+  svg.appendChild(el("text",{x:L,y:yAx+34,fill:cv("--ink-3"),"font-size":10,"font-family":cv("--sans")},"真实时间（上帝视角）"));
+  // 副本行
+  [[yA,"R1 · 副本一","--s1",skew],[yB,"R2 · 副本二","--s3",0]].forEach(r=>{
+    svg.appendChild(el("line",{x1:L,y1:r[0],x2:R,y2:r[0],stroke:cv("--grid"),"stroke-width":1.5,"stroke-dasharray":"4 4"}));
+    svg.appendChild(el("text",{x:L-10,y:r[0]+4,fill:cv(r[2]),"font-size":11.5,"font-weight":700,"text-anchor":"end","font-family":cv("--sans")},r[1]));
+    svg.appendChild(el("text",{x:L-10,y:r[0]+18,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"end","font-family":cv("--mono")},"时钟 "+(r[3]>=0?"+":"")+r[3]+"ms"));
+  });
+  // 两次写
+  const tA=T0, tB=T0+gap;
+  const wr=(x,y,col,label,stamp,val)=>{
+    svg.appendChild(el("line",{x1:x,y1:y,x2:x,y2:yAx,stroke:cv(col),"stroke-width":1,opacity:.45,"stroke-dasharray":"2 3"}));
+    svg.appendChild(el("circle",{cx:x,cy:y,r:9,fill:cv(col),stroke:cv("--plane"),"stroke-width":2}));
+    svg.appendChild(el("text",{x:x,y:y-16,fill:cv("--ink"),"font-size":11,"font-weight":640,"text-anchor":"middle","font-family":cv("--sans")},label));
+    svg.appendChild(el("text",{x:x,y:y+4,fill:"#fff","font-size":10,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},val));
+    svg.appendChild(el("text",{x:x,y:y+24,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--mono")},"打戳 "+stamp));
+  };
+  wr(xt(tA),yA,"--s1","C1 写入（先）",tA+skew,"A");
+  wr(xt(tB),yB,"--s3","C2 写入（后）",tB,"B");
+  // 结论
+  const sA=tA+skew, sB=tB;
+  const lwwWin = sA===sB ? "平局" : (sA>sB?"A":"B");
+  const lost = lwwWin==="A" ? "B" : (lwwWin==="B"?null:"—");
+  $("#c2lww").style.borderColor = lwwWin==="A"?cv("--crit"):cv("--ink-3");
+  $("#c2lww").innerHTML='<div class="card-t" style="color:'+(lwwWin==="A"?"var(--crit)":"var(--ink-3)")+'">策略一 · last-write-wins</div>'+
+    '<dl class="rel"><dt>A 的时间戳</dt><dd><span class="vt">'+sA+'</span>　<span style="font-size:12.5px;color:var(--ink-3)">= 真实 '+tA+' + 偏移 '+skew+'</span></dd>'+
+    '<dt>B 的时间戳</dt><dd><span class="vt">'+sB+'</span>　<span style="font-size:12.5px;color:var(--ink-3)">= 真实 '+tB+' + 偏移 0</span></dd>'+
+    '<dt>最终保留</dt><dd><strong style="font-size:16px">'+(lwwWin==="平局"?"不确定（靠 tie-break）":"值 "+lwwWin)+'</strong></dd></dl>'+
+    (lwwWin==="A"
+      ? '<div class="note crit" style="margin:12px 0 0"><p style="margin-bottom:0"><strong>后写的 B 被静默丢弃了。</strong>C2 明明在 C1 之后 '+gap+'ms 才写，但 R1 的时钟快了 '+skew+'ms，于是 A 的时间戳更大。<br><em>没有报错，没有日志，用户看到"保存成功"然后数据消失。</em></p></div>'
+      : lwwWin==="B"
+      ? '<div class="note ok" style="margin:12px 0 0"><p style="margin-bottom:0">这一次侥幸正确（时钟偏移 '+skew+'ms 小于写入间隔 '+gap+'ms）。<strong>但正确与否取决于一个和业务毫无关系的参数</strong>——把偏移拖大一点就翻转了。</p></div>'
+      : '<div class="note warn" style="margin:12px 0 0"><p style="margin-bottom:0">时间戳完全相同，只能靠节点 ID 之类的 tie-break 随便选一个。</p></div>');
+  $("#c2vv").style.borderColor=cv("--ok");
+  $("#c2vv").innerHTML='<div class="card-t" style="color:var(--ok)">策略二 · 版本向量</div>'+
+    '<dl class="rel"><dt>A 的版本</dt><dd><span class="vt">[R1:1, R2:0]</span></dd>'+
+    '<dt>B 的版本</dt><dd><span class="vt">[R1:0, R2:1]</span></dd>'+
+    '<dt>判定</dt><dd><strong style="color:var(--crit)">并发（互不 ≤）</strong></dd>'+
+    '<dt>结果</dt><dd><strong style="font-size:16px">保留两个 siblings</strong>，交给应用合并</dd></dl>'+
+    '<div class="note ok" style="margin:12px 0 0"><p style="margin-bottom:0"><strong>无论时钟怎么歪，这个判定都不变</strong>——因为它根本不看时钟，只看"谁见过谁"。R1 写 A 时没见过 B，R2 写 B 时没见过 A，所以这就是一次真冲突。<br><em>它不假装知道答案，而是把问题交还给唯一知道答案的人：业务代码。</em></p></div>';
+}
+$("#r2o").oninput=draw2; $("#r2g").oninput=draw2;
+$("#b2run").onclick=()=>{ draw2(); const s=$("#sv2"); s.style.opacity=.25;
+  setTimeout(()=>{s.style.transition="opacity .45s";s.style.opacity=1;
+    setTimeout(()=>s.style.transition="",500);},60); };
+draw2();
+
+/* ══════════════════════════════════════════════════════════════════════
+   实验 3 · 时钟回拨下的三种时钟
+   ══════════════════════════════════════════════════════════════════════ */
+const S3={pt:12000,rows:[],lam:0,l:0,c:0,prevPhys:-1};
+function hlcTick(pt){
+  const lp=S3.l;
+  const l2=Math.max(lp,pt);
+  if(l2===lp) S3.c++; else S3.c=0;
+  S3.l=l2;
+  return [S3.l,S3.c];
+}
+function ev3(jumped){
+  if(!jumped) S3.pt+=20+Math.floor(Math.random()*70);
+  const phys=S3.pt;
+  S3.lam++;
+  const [l,c]=hlcTick(phys);
+  const back = S3.prevPhys>=0 && phys<S3.prevPhys;
+  S3.rows.push({n:S3.rows.length+1,phys,lam:S3.lam,l,c,back,jumped});
+  S3.prevPhys=phys;
+  table3();
+}
+function table3(){
+  const box=$("#t3");
+  if(!S3.rows.length){box.innerHTML='<p style="font-size:13px;color:var(--ink-3);margin:0">还没有事件。先连点几次「产生一个本地事件」，再点「让物理时钟回拨」，然后继续产生事件。</p>';return;}
+  let backCnt=0;
+  let h='<table><thead><tr><th>事件</th><th>纯物理时钟</th><th>Lamport</th><th>HLC (l, c)</th><th>HLC 与物理时钟之差</th></tr></thead><tbody>';
+  S3.rows.forEach(r=>{
+    if(r.back)backCnt++;
+    h+='<tr'+(r.back?' style="background:color-mix(in srgb,var(--crit) 14%,transparent)"':'')+'>'+
+      '<td><strong>#'+r.n+'</strong>'+(r.jumped?' <span class="tag" style="border-color:var(--warn);color:var(--warn)">回拨后</span>':'')+'</td>'+
+      '<td style="font-family:var(--mono)'+(r.back?';color:var(--crit);font-weight:700':'')+'">'+r.phys+(r.back?' ⟵ 倒退！':'')+'</td>'+
+      '<td style="font-family:var(--mono)">'+r.lam+'</td>'+
+      '<td style="font-family:var(--mono);color:var(--ok);font-weight:600">('+r.l+', '+r.c+')</td>'+
+      '<td style="font-family:var(--mono);color:var(--ink-3)">+'+(r.l-r.phys)+' ms</td></tr>';
+  });
+  h+='</tbody></table>';
+  h+='<p style="font-size:13px;margin:8px 0 0;color:'+(backCnt?'var(--crit)':'var(--ink-3)')+'">'+
+    (backCnt?'⚠ 纯物理时钟出现了 '+backCnt+' 次倒退。而 Lamport 与 HLC 两列<strong>始终单调递增</strong>——注意 HLC 的 l 在回拨期间冻结不动、靠 c 递增撑住顺序，等物理时钟追上来后 c 自动归零。'
+            :'目前还没有回拨。点「让物理时钟回拨」制造一次 NTP 校时事故。')+'</p>';
+  box.innerHTML=h;
+}
+$("#r3j").oninput=()=>$("#l3j").textContent=$("#r3j").value+" ms";
+$("#b3ev").onclick=()=>ev3(false);
+$("#b3jump").onclick=()=>{ S3.pt+=+$("#r3j").value; ev3(true); };
+$("#b3clr").onclick=()=>{S3.pt=12000;S3.rows=[];S3.lam=0;S3.l=0;S3.c=0;S3.prevPhys=-1;table3();};
+$("#r3j").oninput(); table3();
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

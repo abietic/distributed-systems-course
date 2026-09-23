@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 3-D · Raft 附录：索引、读、配置与日志的真相</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+.scen{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.scen button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.two,.three{grid-template-columns:1fr}}
+.grid-wrap{overflow-x:auto}
+/* 日志条带 */
+.tape{display:flex;gap:3px;font-family:var(--mono);font-size:12px;margin:6px 0 0;flex-wrap:nowrap}
+.cell{min-width:44px;height:38px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);
+  display:grid;place-items:center;position:relative;flex:none;color:var(--ink-2);line-height:1.15;padding:0 4px}
+.cell b{font-size:12px;color:var(--ink);font-weight:660}
+.cell.commit{background:rgba(25,158,112,.16);border-color:var(--s3)}
+.cell.applied{background:rgba(57,135,229,.20);border-color:var(--s1)}
+.cell.uncommitted{background:rgba(250,178,25,.12);border-color:var(--warn)}
+.mk{display:flex;gap:3px;margin-top:4px;flex-wrap:nowrap}
+.mkc{min-width:44px;flex:none;text-align:center;font-family:var(--mono);font-size:10px;color:var(--ink-3);line-height:1.3}
+.idxbar{display:grid;gap:4px;margin:14px 0 0}
+.idxrow{display:grid;grid-template-columns:132px 1fr;gap:12px;align-items:center;font-size:13px}
+.idxrow .nm{font-family:var(--mono);font-size:12px;color:var(--ink-2);text-align:right}
+.meter{height:20px;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;position:relative;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;transition:width .25s;display:block}
+.rnode{border:1px solid var(--border);border-radius:9px;background:var(--surface-2);padding:9px 11px;font-size:12.5px}
+.rnode .h{font-family:var(--mono);font-size:12px;font-weight:700;margin-bottom:5px;display:flex;justify-content:space-between;gap:8px}
+.badge{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);color:var(--ink-3)}
+.badge.L{background:var(--s2);border-color:var(--s2);color:#fff}
+.badge.F{background:transparent}
+.badge.D{background:var(--crit);border-color:var(--crit);color:#fff}
+.vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin-top:10px}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 3-D</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：三个被教程跳过的洞</a>
+    <a href="#s1">3.24 一次写的完整生命周期</a>
+    <a href="#s1" class="sub">▸ 实验：四个 index 与读的第三步</a>
+    <a href="#s2">3.25 no-op：新 Leader 的第一件事</a>
+    <a href="#s2" class="sub">▸ 实验：不发 no-op 会读到什么</a>
+    <a href="#s3">3.26 Quorum ≠ Raft</a>
+    <a href="#s3" class="sub">▸ 实验：同一组并发写，两个世界</a>
+    <a href="#s4">3.27 读能不能不走 Leader</a>
+    <a href="#s5">3.28 配置从哪来、何时生效</a>
+    <a href="#s5" class="sub">▸ 实验：冷启动沙盒</a>
+    <a href="#s6">3.29 Raft log 不是 redo log</a>
+    <a href="#s7">3.30 单组吞吐的天花板</a>
+    <a href="#s7b">3.31 追问篇（含勘误）</a>
+    <a href="#s8">3.32 自测题（10 题）</a>
+    <a href="#s9">Lab 3-D · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 3-D · Raft FAQ：Indexes, Reads, Configuration &amp; Logs</div>
+  <h1>Raft 附录：教程通常不讲的那几件事</h1>
+  <p class="lead">3-A 到 3-C 已经把 Raft 讲完整了。但几乎所有 Raft 教程——包括我前三章——都留下了三个洞，而这三个洞恰好是把 Raft <em>用对</em>与<em>用错</em>的分界线。</p>
+
+  <div class="ladder" style="display:grid;gap:6px;margin:16px 0">
+    <div class="pstep" style="border-color:var(--s1)"><div class="n" style="background:var(--s1)">①</div>
+      <div><div class="ti" style="font-weight:660">「提交了」不等于「读得到」</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">Raft 有<strong>四个</strong> index，不是一个。<code>commitIndex</code> 和 <code>lastApplied</code> 之间那个窗口，是所有「刚写完就读不到」类线上故障的源头。ReadIndex 的<strong>第三步</strong>才是答案，而大多数文章只讲前两步。</div></div></div>
+    <div class="pstep" style="border-color:var(--s2)"><div class="n" style="background:var(--s2)">②</div>
+      <div><div class="ti" style="font-weight:660">Quorum 读写和 Raft 是两个世界</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">都在说「过半」，但 <strong>W+R&gt;N 的 quorum 写不是 Raft 的日志 append</strong>。把 Part 2 学的东西往 Part 3 上套，会得出一堆看似合理实则荒谬的结论。</div></div></div>
+    <div class="pstep" style="border-color:var(--s4)"><div class="n" style="background:var(--s4)">③</div>
+      <div><div class="ti" style="font-weight:660">配置是鸡生蛋问题</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">成员列表存在日志里，可要复制日志得先知道成员是谁。<strong>冷启动怎么破这个环</strong>、配置<em>何时</em>生效、增减节点会不会触发选举——这三件事错一件就是线上脑裂。</div></div></div>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>这一章的性质</div>
+    <p style="margin-bottom:0">前三章是<strong>算法</strong>，这一章是<strong>算法与系统之间的接缝</strong>。Raft 论文里这些内容分散在第 6、7、8 节和博士论文里，被绝大多数二手教程丢掉了——而线上事故恰恰长在接缝上。</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>3.24 一次写的完整生命周期：Raft 的四个 index</h2>
+  <p>先把一个最常见的误解摆出来：<strong>「Raft 提交了这条日志」和「客户端能读到这个值」是两件事</strong>，中间隔着一步，而那一步是<em>异步</em>的。</p>
+
+  <p>一条客户端写请求在 Leader 上要走完四个阶段，每个阶段对应一个 index：</p>
+
+  <table>
+    <thead><tr><th style="width:17%">index</th><th style="width:20%">含义</th><th style="width:16%">持久化？</th><th>能被回滚吗</th></tr></thead>
+    <tbody>
+      <tr><td><code>lastLogIndex</code></td><td>已 append 到本地日志的最后一条</td><td>是（<code>log[]</code>）</td><td><strong style="color:var(--crit)">能。</strong>未提交的尾巴随时可能被新 Leader 截断覆盖——3-B 的 Figure 7 就是在演示这个。</td></tr>
+      <tr><td><code>matchIndex[i]</code></td><td>Leader 记的「第 i 个 follower 已复制到哪」</td><td>否（Leader 上的易失状态）</td><td>不适用。它是 Leader 的<em>记账</em>，新 Leader 上任会全部重置为 0 重新试探。</td></tr>
+      <tr><td><code>commitIndex</code></td><td>已被过半复制、<strong>永不回滚</strong>的最后一条</td><td>否（可推导）</td><td><strong style="color:var(--ok)">不能。</strong>这就是「提交」的定义。</td></tr>
+      <tr><td><code>lastApplied</code></td><td>已交给状态机执行的最后一条</td><td>否（可推导）</td><td>不能，但<strong>会滞后</strong>——这是关键。</td></tr>
+    </tbody>
+  </table>
+
+  <p>它们的大小关系永远是：</p>
+<pre><code>lastLogIndex  &gt;=  commitIndex  &gt;=  lastApplied</code></pre>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>那个窗口</div>
+    <p style="margin-bottom:0"><code>commitIndex</code> 和 <code>lastApplied</code> 之间的区间，是<strong>「已经保证不丢、但还没生效」</strong>的数据。<br>
+    apply 是后台线程在做的（要执行命令、写存储引擎、可能还要落盘），所以这个窗口<em>永远存在</em>，只是大小随负载波动。<br>
+    <strong>如果你在这个窗口里直接读状态机，你读到的是过去。</strong></p>
+  </div>
+
+  <h3>于是 ReadIndex 是三步，不是两步</h3>
+  <p>3-C 里我把 ReadIndex 说成「读之前发一轮心跳确认自己还是主」——那是<strong>简化的</strong>。完整版：</p>
+
+  <div style="display:grid;gap:8px;margin:16px 0">
+    <div class="pstep"><div class="n">1</div><div>
+      <div class="ti" style="font-weight:660"><code>readIndex := commitIndex</code></div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">记下当前的提交点。<strong>前提条件</strong>：Leader 必须在<u>本任期内</u>已经提交过至少一条日志，否则 <code>commitIndex</code> 可能还没推到该在的位置。这就是 §3.25 的 no-op。</div></div></div>
+    <div class="pstep"><div class="n">2</div><div>
+      <div class="ti" style="font-weight:660">发一轮心跳，收到过半响应</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">确认「我此刻仍是合法 Leader」，从而确认 <code>readIndex</code> 确实是<em>全集群</em>的提交点，而不只是我自己以为的。这一步防的是僵尸 Leader（3-C）。</div></div></div>
+    <div class="pstep" style="border-color:var(--s1)"><div class="n" style="background:var(--s1)">3</div><div>
+      <div class="ti" style="font-weight:660">等到 <code>lastApplied &gt;= readIndex</code>，再读状态机</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)"><strong>这一步就是把「日志的版本」和「状态机的版本」对齐。</strong>没有它，前两步做得再对也没用——你确认了自己是 Leader、确认了提交点是 7，然后去读一个只重放到 5 的状态机。</div></div></div>
+  </div>
+
+  <p class="hint">第 1、2 步保证 <em>readIndex 这个数字是对的</em>；第 3 步保证 <em>你读的那份数据追上了这个数字</em>。少任何一步都不是线性一致。</p>
+
+  <div class="two">
+    <div class="card" style="margin:0;border-color:var(--ok)"><div class="card-t">commit 与 apply 分开带来的红利：截断永远不需要 undo</div>
+      <p style="margin-bottom:0">follower 截断冲突日志时，被删掉的<strong>只可能是未提交的条目</strong>（etcd 的实现里，冲突一旦落在已提交范围内直接 panic）。而状态机只 apply <strong>已提交</strong>的条目——所以状态机从没见过被截断的东西，<u>什么都不用撤销</u>。<br>
+      <span style="color:var(--ink-3)">这也是 Raft 状态机不需要 undo log 的原因。对比 InnoDB：它的数据页会先被未提交事务改掉，所以必须有 undo。</span></p></div>
+    <div class="card" style="margin:0;border-color:var(--warn)"><div class="card-t">那不做检查直接读，读到的是什么？</div>
+      <p style="margin-bottom:0">状态机里永远是<strong>某个已提交前缀</strong>的结果：不会脏、不会回滚，<em>只可能旧</em>。所以直接本地读给你的是一个<strong>一致但不保证新</strong>的快照——这本身就是一个有用的级别（etcd 的 <code>--consistency=s</code>）。<br>
+      三步检查买的是另一个东西：读能看到「<u>在它发起之前已经返回成功的所有写</u>」——这才是线性一致。<br>
+      <span style="color:var(--ink-3)">客户端在不同 follower 间切换做本地读，还可能先看到 index 10、再看到 index 7——Part 2 的「单调读」异常。</span></p></div>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 四个 index 与「读的第三步」</div><div class="s">手动推进流水线，看 commit 和 apply 拉开距离时读到什么</div></div>
+    <div class="lab-b">
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b1w">客户端写 ▸</button>
+        <button id="b1rep">复制给 follower</button>
+        <button id="b1cm">推进 commitIndex</button>
+        <button id="b1ap">apply 一条</button>
+        <button id="b1reset">重来</button>
+      </div>
+      <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="b1wait" checked><span class="tr"></span>ReadIndex 第 3 步：等 <code>lastApplied &gt;= readIndex</code></label>
+
+      <div class="card" style="margin:0 0 14px">
+        <div class="card-t">Leader N1 的日志</div>
+        <div class="grid-wrap"><div class="tape" id="t1"></div><div class="mk" id="m1"></div></div>
+        <div class="legend">
+          <span><i style="width:11px;height:11px;border-radius:3px;background:rgba(57,135,229,.5);border:1px solid var(--s1);display:inline-block"></i>已 apply（能读到）</span>
+          <span><i style="width:11px;height:11px;border-radius:3px;background:rgba(25,158,112,.4);border:1px solid var(--s3);display:inline-block"></i>已提交未 apply（<strong>读不到</strong>）</span>
+          <span><i style="width:11px;height:11px;border-radius:3px;background:rgba(250,178,25,.3);border:1px solid var(--warn);display:inline-block"></i>已 append 未提交（可能被覆盖）</span>
+        </div>
+        <div class="idxbar" id="ib1"></div>
+      </div>
+
+      <div class="ctrl" style="margin-bottom:0"><button id="b1read">读 x（ReadIndex）</button><span class="hint" style="margin:0">写入的值依次是 x=1, 2, 3 …</span></div>
+      <div id="o1" style="margin-top:14px"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>3.25 no-op：新 Leader 上任的第一件事</h2>
+  <p>这条规则藏在 Raft 论文第 8 节的一句话里，但它是 Figure 8 那条限制的<strong>直接后果</strong>——你在 3-B 已经推过一半了。</p>
+
+  <p>回忆 3-B 的提交规则：</p>
+<pre><code><span class="cm">// Leader 只能提交<strong>当前任期</strong>的日志条目；</span>
+<span class="cm">// 旧任期的条目只能靠「被当前任期的条目带着一起提交」而间接提交。</span>
+if log[N].term != currentTerm { continue }</code></pre>
+
+  <p>现在看新 Leader 刚当选的那一刻。它的日志里可能有一大段<strong>已经复制到过半、但 <code>commitIndex</code> 没标记</strong>的旧任期条目——上一任 Leader 复制完就崩了，还没来得及推进 commitIndex 并广播。</p>
+
+  <p>新 Leader 想提交它们吗？想。能直接提交吗？<strong>不能</strong>，Figure 8 那条限制不让。于是形成一个尴尬的僵局：</p>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>僵局</div>
+    <p style="margin-bottom:0">新 Leader 的 <code>commitIndex</code> 停在一个<strong>偏小</strong>的位置，而且<em>如果没有新的写入进来，它会一直停在那里</em>。<br>
+    此时如果有客户端来读：<code>readIndex := commitIndex</code> 拿到的是那个偏小的值 ⇒ 第 3 步等的是一个过时的目标 ⇒ <strong>读到旧数据，而且 ReadIndex 的前两步都完美通过了</strong>。</p>
+  </div>
+
+  <p>解法一行字：<strong>新 Leader 当选后立刻在自己的任期里 append 一条空的 no-op 条目并复制出去。</strong></p>
+
+  <div class="two">
+    <div class="card" style="margin:0"><div class="card-t">no-op 顺带办成的三件事</div>
+      <ol style="margin:0;padding-left:20px">
+        <li><strong>推进 commitIndex。</strong>no-op 是当前任期的条目，可以直接提交；它一提交，前面所有旧任期条目<em>被顺带提交</em>（提交是前缀性的）。</li>
+        <li><strong>让读安全。</strong>commitIndex 到位后，<code>readIndex</code> 才是真的。</li>
+        <li><strong>探明 follower 的日志。</strong>复制 no-op 的过程顺便完成了所有 follower 的 <code>nextIndex</code> 回退试探（3-B 的冲突回退）。</li>
+      </ol>
+    </div>
+    <div class="card" style="margin:0"><div class="card-t">还有第四件（3-C 的补丁）</div>
+      <p style="margin-bottom:0">单节点成员变更有一个 <strong>2015 年才被发现的坑</strong>：新 Leader 必须先提交一条自己任期的日志，<em>才能发起新的成员变更</em>。否则它可能基于一个尚未提交、后来被回滚的配置做决策。<br>
+      no-op 同时把这个前提也满足了。<br>
+      <span style="color:var(--ink-3)">所以 etcd/TiKV 里 Leader 一上任必发 no-op，不是优化，是正确性要求。</span></p>
+    </div>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>no-op 还没提交时来了读请求怎么办？</div>
+    <p style="margin-bottom:0">先等 no-op 提交，再走 ReadIndex 三步。etcd raft 的做法是<strong>把这类读挂起排队</strong>：</p>
+<pre style="margin:10px 0"><code><span class="cm">// Postpone read only request when this leader has not committed any log entry at its term.</span>
+if !r.committedEntryInCurrentTerm() {
+    r.pendingReadIndexMessages = append(r.pendingReadIndexMessages, m)
+    return nil
+}</code></pre>
+    <p style="margin-bottom:0">本任期第一条提交后再放行。也有实现选择直接拒绝、让客户端重试——两种都安全，区别只在延迟。<strong>绝不能做的是拿一个还没到位的 commitIndex 去凑合</strong>。<br>
+    <span style="color:var(--ink-3)">勘误：上一版 Lab 3D-2 写的是「etcd/TiKV 会拒绝服务读」，etcd 实际是排队。</span></p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · 不发 no-op，ReadIndex 会读到什么</div><div class="s">前两步全部通过，第三步等了个寂寞</div></div>
+    <div class="lab-b">
+      <label class="sw" style="margin-bottom:14px"><input type="checkbox" id="b2noop" checked><span class="tr"></span>新 Leader 上任发送 no-op 条目</label>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b2step">下一步 ▸</button>
+        <button id="b2reset">重来</button>
+      </div>
+      <div class="card" style="margin:0 0 14px"><div class="card-t" id="c2t">场景</div>
+        <div class="grid-wrap"><div class="vgrid" id="v2"></div></div>
+      </div>
+      <div id="o2"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3.26 Quorum 读写 ≠ Raft 日志复制</h2>
+  <p>Part 2 讲了 <code>W+R&gt;N</code>，Part 3 讲了「过半复制才算提交」。它们都在说「过半」，于是很自然会问：<em>quorum 写是不是就是 Raft 的日志 append？</em></p>
+  <p><strong>不是。</strong>它们属于两个不同的设计世界，底层用的是同一条数学事实，但用法完全相反。</p>
+
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:18%"></th><th style="width:41%">Dynamo 式 Quorum（Part 2）</th><th>Raft（Part 3）</th></tr></thead>
+    <tbody>
+      <tr><td><strong>谁能接受写</strong></td><td><strong>任何副本</strong>（无 Leader，或者说人人都是协调者）</td><td><strong>只有 Leader</strong></td></tr>
+      <tr><td><strong>写有全局顺序吗</strong></td><td><strong style="color:var(--crit)">没有。</strong>并发写各写各的，产生多个并存版本</td><td><strong style="color:var(--ok)">有。</strong>每条日志一个唯一递增 index</td></tr>
+      <tr><td><strong>冲突怎么办</strong></td><td>甩给读端：向量时钟 / LWW / CRDT / 应用层合并</td><td><strong>不会有冲突</strong>——Leader 在写入前就定好了序</td></tr>
+      <tr><td><strong>读要干什么</strong></td><td>读 R 个副本，<em>自己</em>比较版本、合并、可能还要写回修复</td><td>读 Leader 一个（加一次确认）就够</td></tr>
+      <tr><td><strong>「过半」保证什么</strong></td><td>读集合 ∩ 写集合 ≠ ∅ ⇒ <em>至少碰到一个</em>持有最新值的副本</td><td>任意两次成功操作（选举/提交）的参与集合必相交 ⇒ 新 Leader 必持有全部已提交日志</td></tr>
+      <tr><td><strong>一致性</strong></td><td>最终一致（可调）</td><td>线性一致</td></tr>
+      <tr><td><strong>代表系统</strong></td><td>Dynamo、Cassandra、Riak、Voldemort</td><td>etcd、Consul、TiKV、CockroachDB</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>把差别压成一句话</div>
+    <p style="margin-bottom:0">Dynamo 的 W 说的是「<strong>有 W 个副本收下了我发的这个值</strong>」——但它们收下的<em>各自是什么</em>并不受约束。<br>
+    Raft 的过半说的是「<strong>有过半节点的 index=5 这个位置，放着同一条 entry</strong>」——这是日志匹配性质给的，强得多。<br>
+    前者是<em>数量</em>的保证，后者是<em>内容与位置</em>的保证。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 同一组并发写，丢进两个世界</div><div class="s">N=5，两个客户端同时写同一个 key，看各副本最后手里拿的是什么</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>副本数 N <span id="l3n">5</span></label><input type="range" id="i3n" min="3" max="7" step="2" value="5"></div>
+        <div class="f"><label>写 quorum W <span id="l3w">3</span></label><input type="range" id="i3w" min="1" max="7" value="3"></div>
+        <div class="f"><label>读 quorum R <span id="l3r">3</span></label><input type="range" id="i3r" min="1" max="7" value="3"></div>
+        <div class="f"><label>并发写的客户端数 <span id="l3c">2</span></label><input type="range" id="i3c" min="1" max="4" value="2"></div>
+        <div class="f"><label>随机种子 <span id="l3s">7</span></label><input type="range" id="i3s" min="1" max="60" value="7"></div>
+        <button class="primary" id="b3run">跑一次</button>
+      </div>
+      <div class="two">
+        <div class="card" style="margin:0"><div class="card-t">① Dynamo 式 Quorum（无 Leader）</div><div id="d3a"></div></div>
+        <div class="card" style="margin:0"><div class="card-t">② Raft（Leader 定序）</div><div id="d3b"></div></div>
+      </div>
+      <div id="o3" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>那 Raft 里有没有「quorum 读」这个东西？</div>
+    <p style="margin-bottom:0">没有。Raft 不需要去读过半副本再比较——<strong>读一个 Leader 就够了</strong>，因为 Leader 按定义持有全部已提交日志（Leader 完整性）。<br>
+    ReadIndex 里那一轮心跳<em>看起来</em>像 quorum 读，但它读的不是<em>数据</em>，是<strong>「我还是不是 Leader」这一个 bit</strong>。数据一个字节都不用从 follower 拿。<br>
+    这个区别决定了两者的带宽开销差着数量级。</p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2>3.27 读到底能不能不走 Leader</h2>
+  <p>Raft 论文的「强 Leader」（strong leader）是<strong>定义性的</strong>，不是「还没来得及优化读」：</p>
+  <div class="kv" style="margin:14px 0">
+    <dt>规则一</dt><dd>日志只从 Leader <strong>单向</strong>流向 follower</dd>
+    <dt>规则二</dt><dd>客户端的所有<strong>写</strong>都必须经过 Leader</dd>
+  </div>
+  <p>为什么必须这样？因为 3-B 的<strong>日志匹配性质</strong>（两个日志在同一 index 有同一 term ⇒ 此前全部相同）建立在「只有 Leader 追加」之上。一旦允许 follower 自己接写，这条性质当场破产，而 Raft 的整套安全性证明都架在它上面。</p>
+  <p class="hint">Raft 是<em>用限制换可理解性</em>。Paxos 允许任意节点提议，代价是要处理乱序 chosen 留下的空洞，难懂得多——这正是 Raft 论文开篇声明的设计目标：understandability。</p>
+
+  <h3>读的四个档位</h3>
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:16%">方式</th><th style="width:13%">在哪读</th><th style="width:24%">怎么保证不读到旧值</th><th style="width:13%">代价</th><th>线性一致？</th></tr></thead>
+    <tbody>
+      <tr><td><strong>本地读</strong></td><td>Leader</td><td>不保证</td><td>0</td><td><strong style="color:var(--crit)">否</strong>（3-C 实验里 25/25 全脏）</td></tr>
+      <tr><td><strong>ReadIndex</strong></td><td>Leader</td><td>心跳确认 + 等 apply 追平</td><td>1 RTT，<u>不写日志</u></td><td><strong style="color:var(--ok)">是</strong>（etcd 默认）</td></tr>
+      <tr><td><strong>Lease Read</strong></td><td>Leader</td><td>租约未过期 + 等 apply 追平</td><td>0，但依赖时钟</td><td><strong style="color:var(--ok)">是</strong>（前提：时钟漂移有界）</td></tr>
+      <tr><td><strong>Follower Read</strong></td><td>Follower</td><td><em>向 Leader 要 readIndex</em>，再等自己 apply 追平</td><td>1 RTT（去 Leader 要）</td><td><strong style="color:var(--ok)">是</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>Follower Read 到底省了什么</div>
+    <p style="margin-bottom:0">它<strong>不省那一轮确认 RTT</strong>——一致性保证仍然来自 Leader 的那次确认。<br>
+    它省的是 <strong>Leader 的数据传输与状态机读取开销</strong>：大结果集不必从 Leader 的网卡出去，Leader 的 CPU 也不用去翻存储引擎。对「读多写少 + 单次读结果大」的负载，这个收益很可观；对「读小 key」的负载，收益接近零。<br>
+    另外要区分：etcd 的 <code>--consistency=s</code>（serializable read）<strong>不走 readIndex</strong>，它是明确放弃线性一致换延迟的选项，和这里说的 Follower Read 不是一回事。<br>
+    <em>为什么叫 serializable 却更弱？</em>可串行化和线性一致根本不在一条轴上：前者只要求「等价于<u>某个</u>串行顺序」，后者要求「符合<u>真实时间</u>」。从本地读一个已提交前缀，满足前者、不满足后者。两者都满足的叫 <strong>strict serializability</strong>。etcd 官方 benchmark 里，线性一致读 141,578 QPS / 5.5ms，serializable 读 185,758 QPS / 2.2ms——差的就是那一轮确认。</p>
+  </div>
+  <p class="hint">论文第 8 节本身就讨论了 read-only 优化（ReadIndex 与 lease），Follower Read 是其上的工程扩展——所以它既不是「论文里的」，也不是「某家的私货」。</p>
+</section>
+
+<section id="s5">
+  <h2>3.28 配置：从哪来、何时生效、会不会触发选举</h2>
+
+  <h3>① 配置是从 Leader 下发的吗？是。</h3>
+  <p>成员配置 <code>C_new</code> 就是<strong>一条特殊的日志条目</strong>，走完全相同的 <code>AppendEntries</code> 路径复制出去。没有第二套通道。</p>
+  <p>而且它存的不只是「节点 id 的集合」，是 <strong>id → 地址 的映射</strong>：</p>
+<pre><code>{ "type": "config",
+  "voters": {
+    "n1": "10.0.1.10:2380",
+    "n2": "10.0.1.11:2380",
+    "n3": "10.0.1.12:2380" },
+  "learners": {} }</code></pre>
+  <p>这直接回答了「机器怎么互相访问到」：<strong>地址是配置的一部分，Raft 自己不做服务发现</strong>。DNS SRV、K8s Service 这些只是帮你<em>生成</em>那份初始列表。</p>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>连回 3-C：为什么快照必须包含配置</div>
+    <p style="margin-bottom:0">配置存在日志里 → 快照会截断日志 → 如果快照不含配置，节点重启后<strong>不知道同伴是谁、地址是什么</strong>，连选举都发不出去。<br>
+    这就是 3-C 里 <code>InstallSnapshot</code> 要带 config 的原因，现在它有了完整的来龙去脉。</p>
+  </div>
+
+  <h3>② 反直觉：配置一收到就生效，不等提交</h3>
+  <p>论文原文：<em>a server always uses the latest configuration in its log, <strong>regardless of whether the entry is committed</strong></em>。</p>
+  <p>为什么不能等提交？因为会死循环：</p>
+<pre><code>要提交 C_new  →  得先知道「过半」是几个
+「过半」是几个  →  取决于当前生效的是 C_old 还是 C_new
+当前生效的是哪个  →  取决于 C_new 提交了没有   ← 回到第一行</code></pre>
+  <p>Raft 的选择是<strong>立即采用</strong>，代价是这条配置条目可能被新 Leader 覆盖回滚（节点又退回 <code>C_old</code>）。之所以敢这么干，正是因为<strong>单节点变更保证了 <code>C_old</code> 与 <code>C_new</code> 的任意两个过半集合必相交</strong>——回滚期间也不可能出现两个 Leader。这就是你在 3-C 推过的那个不等式在兜底。</p>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>勘误 · 上面是论文的做法，etcd 走的是另一条路</div>
+    <p style="margin-bottom:0">etcd raft 的 README 原话：membership change <em>"takes effect when its entry is applied, not when it is added to the log (so the entry is committed under the old membership instead of the new)"</em>，并说明这在安全性上是等价的。它的代价是另一条规则：<strong>Leader 日志里只要还有未提交的配置变更，新的配置变更一律不接受</strong>（一次只能有一个在途）。<br>
+    所以死循环是这样被打破的：<em>用旧配置提交新配置，提交并 apply 之后才切换</em>。两种做法都安全；读源码时别被「一收到就生效」带偏。</p>
+  </div>
+
+  <h3>③ 增减机器会触发重新选举吗？默认不会</h3>
+  <p>配置变更本身不触发选举，Leader 继续是 Leader，只是它算「过半」时用的数变了。<strong>两个例外：</strong></p>
+  <div class="two">
+    <div class="card" style="margin:0;border-color:var(--warn)"><div class="card-t">例外 1 · 被移除的是 Leader 自己</div>
+      <p style="margin-bottom:0">论文的做法是：Leader 在 <code>C_new</code> <strong>提交之后</strong>才 step down。<br>
+      有意思的是这期间它在管理一个<em>不包含自己的集群</em>——复制日志、算过半时不把自己算进去。<br>
+      它退位后，新集群才会选举。</p></div>
+    <div class="card" style="margin:0;border-color:var(--crit)"><div class="card-t">例外 2 · 被移除的节点捣乱</div>
+      <p style="margin-bottom:0">被移出配置的节点收不到心跳了，会超时、自增 term 发起选举——<strong>term 更高会把现任 Leader 打下来</strong>，可它不在配置里，永远选不上，严重时反复发生。论文把它叫 disruptive servers。<br>
+      解法：<span class="chip">PreVote</span> 先问一轮「如果我选你会投吗」，不实际自增 term；<span class="chip">CheckQuorum</span> 刚收到过 Leader 心跳的节点直接忽略投票请求。</p>
+      <p style="margin:8px 0 0;color:var(--ink-3)"><strong>勘误</strong>：上一版这里写成了「新节点捣乱」。新节点的问题是<em>可用性</em>（追日志期间可能拖住提交，所以要先当 <span class="chip">learner</span>），不是捣乱——etcd 启动新成员时不带任何初始配置，它连自己是不是投票成员都不知道，不会发起选举。</p></div>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>一个常见的错误推理</div>
+    <p style="margin-bottom:0">「{A,B,C} → {A,B,C,D}，过半从 2 变成 3，所以会触发重新选举。」<br>
+    <strong>前半句对，后半句错。</strong>过半数确实变了，但现任 Leader 只是从「等 2 个 ack」改成「等 3 个 ack」，它的身份没有任何变化。<br>
+    <em>过半数变化 ≠ 需要重新选举。</em>Leader 的合法性来自任期和选票，不来自集群规模。</p>
+  </div>
+
+  <h3>④ 冷启动：怎么破这个鸡生蛋的环</h3>
+  <p>配置存在日志里，可要复制日志得先知道配置。Raft 的答案是：<strong>初始配置不能从日志来，必须从外部给</strong>。工程上有两条路。</p>
+
+  <p><strong>路径 A · 静态引导（static bootstrap）。</strong>每个节点启动时用参数写死完整成员列表。以 etcd 为例：</p>
+<pre><code>etcd --name infra0 \
+  --initial-advertise-peer-urls http://10.0.1.10:2380 \
+  --initial-cluster infra0=http://10.0.1.10:2380,infra1=http://10.0.1.11:2380,infra2=http://10.0.1.12:2380 \
+  --initial-cluster-state new \
+  --initial-cluster-token my-etcd-token</code></pre>
+  <table>
+    <thead><tr><th style="width:32%">参数</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td><code>--initial-cluster</code></td><td><strong>名字 → peer URL 的映射。</strong>「有几台机器」从这里数出来，「怎么访问到」也从这里来。</td></tr>
+      <tr><td><code>--initial-cluster-state</code></td><td><code>new</code> = 我在创建一个新集群；<code>existing</code> = 我在加入一个已存在的集群（重启节点，或先 <code>member add</code> 再启动的新节点）。<strong>用错会造出第二个集群</strong>。</td></tr>
+      <tr><td><code>--initial-cluster-token</code></td><td>集群标识。防止你同时搭多套配置相同的集群时，节点互相串台认错了亲。</td></tr>
+      <tr><td><code>--initial-advertise-peer-urls</code></td><td>本节点对外广播的 peer 地址，必须和别人 <code>--initial-cluster</code> 里写的那一项<u>完全一致</u>。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>运维踩坑重灾区</div>
+    <p style="margin-bottom:0">这些 <code>--initial-*</code> 参数<strong>只在 data dir 为空的首次启动时生效</strong>。集群一旦跑起来，成员信息就存进 data dir（在日志/快照里）了，后续重启从<em>本地状态</em>读，<code>--initial-cluster</code> 被完全忽略。<br>
+    <strong>改配置文件不会改变集群成员。</strong>要增删成员只能走 <code>member add</code> / <code>member remove</code>；要换 IP 只能走 <code>member update</code>。<br>
+    <strong>data dir 丢了的成员，不要用原来的身份重启</strong>：etcd 文档要求先 <code>member remove</code>、再 <code>member add</code> 一个新成员。原因见实验 4 的 D1/D2——同 token 同成员列表算出来的是<u>同一个集群 ID</u>，用 <code>state=new</code> 重启不是「建新集群」，而是「冒充旧成员」。</p>
+  </div>
+
+  <p><strong>路径 B · 单节点引导 + 动态加入。</strong>先起一台「成员只有我自己」的集群——它一个人就是过半，立刻选自己当 Leader——然后一台一台 <code>member add</code>（生产上先加成 learner，追平后提升）。TiDB 的 PD、Consul 常用这个模式，好处是不需要提前知道最终拓扑，适合弹性伸缩场景。</p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">4</div><div class="t">实验 4 · 冷启动沙盒：配置写错会怎样</div><div class="s">按 etcd 源码里的判断一步步执行，看谁被拒绝、有没有丢数据</div></div>
+    <div class="lab-b">
+      <div class="scen" id="sc4">
+        <button data-s="0" class="act">A · 正确的静态引导</button>
+        <button data-s="1">B · 一个节点列表写错</button>
+        <button data-s="2">C · token 不同</button>
+        <button data-s="3">D1 · 清空两台后 state=new 重启（n1 在线）</button>
+        <button data-s="4">D2 · 同上，n1 当时不在线</button>
+        <button data-s="5">E · 单节点引导 + member add</button>
+        <button data-s="6">F · E 的最后一步列表写错</button>
+      </div>
+      <div class="card" style="margin:0 0 14px"><div class="card-t">各节点的启动参数</div>
+        <div class="grid-wrap"><div id="cfg4"></div></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:0"><button class="primary" id="b4run">启动集群</button><button id="b4reset">重来</button></div>
+      <div id="o4" style="margin-top:14px"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s6">
+  <h2>3.29 Raft log 不是 redo log</h2>
+  <p>两者都是 WAL（write-ahead log，先写日志再改数据），但<strong>它们解决的根本不是同一个问题</strong>。</p>
+
+  <div class="grid-wrap">
+  <table>
+    <thead><tr><th style="width:17%"></th><th style="width:41%">Raft Log</th><th>InnoDB redo log</th></tr></thead>
+    <tbody>
+      <tr><td><strong>解决什么</strong></td><td><strong>多台机器之间就「操作顺序」达成一致</strong></td><td><strong>单台机器崩溃后不丢已提交事务</strong></td></tr>
+      <tr><td><strong>内容</strong></td><td>逻辑命令（<code>SET x=1</code>），必须是<strong>确定性</strong>的</td><td>物理/物理逻辑：「表空间 5 第 137 页 offset 92 改成 0x2A」</td></tr>
+      <tr><td><strong>谁会读它</strong></td><td>所有副本的状态机，每台都要重放一遍</td><td>只有本机崩溃恢复时读</td></tr>
+      <tr><td><strong>能重放到别的机器吗</strong></td><td><strong style="color:var(--ok)">能——这就是它存在的全部意义</strong></td><td><strong style="color:var(--crit)">不能</strong>，页号只对本机的数据文件有意义</td></tr>
+      <tr><td><strong>顺序标识</strong></td><td><code>index</code>，<strong>跨机器一致</strong></td><td><code>LSN</code>，只在本机有意义</td></tr>
+      <tr><td><strong>怎么截断</strong></td><td>快照（snapshot）</td><td>checkpoint（把脏页刷下去）</td></tr>
+      <tr><td><strong>丢了会怎样</strong></td><td>Leader 完整性破产，已提交数据可能消失</td><td>崩溃后丢掉最近已提交的事务</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>「确定性」这条比看起来要命</div>
+    <p style="margin-bottom:0">Raft log 里<strong>绝对不能</strong>出现 <code>SET t = NOW()</code>、<code>SET x = rand()</code>、<code>INSERT ... AUTO_INCREMENT</code> 这类命令——不同副本重放会算出不同结果，<strong>状态机静默发散</strong>，而 Raft 层完全察觉不到（日志明明是一模一样的）。<br>
+    正确做法：在 Leader 上先把非确定值算好，把<em>结果</em>写进日志。<br>
+    <em>这和 MySQL binlog 从 statement 格式改成 row 格式，是同一个原因、同一个教训。</em></p>
+  </div>
+
+  <h3>真实系统两个都有，而且会打两次盘</h3>
+<pre><code>TiKV 的一次写：
+
+  客户端写
+     ↓
+  ① append 到 Raft log  ──→ 复制给另外 2 个副本
+     ↓                        （它们也各自 append + 落盘）
+     落盘（raftdb 的 WAL）
+     ↓
+  ② 过半确认 = committed，commitIndex 推进
+     ↓
+  ③ apply：写 RocksDB kvdb   ←── 这一层<span class="cm">又有一个 WAL</span>
+     ↓
+     lastApplied 推进，现在才读得到</code></pre>
+  <p>一次写落两次盘，这是共识系统的固有成本。TiKV 为此专门做了 Raft Engine（替代 RocksDB 存 raft log）来省掉一层。另一条路是让两者合一：MySQL Group Replication、阿里 X-Paxos 让 <strong>binlog 兼任 Raft log</strong>。</p>
+
+  <h3>那第二层版本是怎么对上的</h3>
+  <p>§3.24 的第 3 步（<code>lastApplied &gt;= readIndex</code>）解决的是「<em>这台机器的状态机重放够不够新</em>」。但一个<strong>事务型</strong> KV 还要回答另一个正交的问题：「<em>这次读该看哪个快照</em>」。这是另一层：</p>
+
+  <div class="three">
+    <div class="card" style="margin:0"><div class="card-t">TiKV / Percolator</div>
+      <p style="margin-bottom:0">key 存成 <code>(key, ts) → value</code>。事务从全局 TSO 拿一个 <code>start_ts</code>，读取 <code>commit_ts &lt;= start_ts</code> 的最大版本。</p></div>
+    <div class="card" style="margin:0"><div class="card-t">Spanner</div>
+      <p style="margin-bottom:0">用 TrueTime 给的时间戳。<code>read at timestamp t</code> 会等到所有 <code>t' &lt;= t</code> 的事务都完成（safe time）才返回。</p></div>
+    <div class="card" style="margin:0"><div class="card-t">MySQL InnoDB</div>
+      <p style="margin-bottom:0">ReadView + undo 版本链。原理同构，但时间戳是<strong>本地事务 id</strong>，不是全局的——所以它只能做单机快照。</p></div>
+  </div>
+
+  <p>于是一次 TiDB 的快照读，实际上要过<strong>两道版本关</strong>：</p>
+<pre><code>① Raft 层：  等 lastApplied &gt;= readIndex        ← 这台机器的日志重放够不够新
+② MVCC 层：  取 commit_ts &lt;= start_ts 的版本    ← 这次读该看哪个快照</code></pre>
+
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>一个值得记住的对照</div>
+    <p style="margin-bottom:0"><strong>Raft 的 index 之于集群，相当于 LSN 之于单机；<br>
+    MVCC 的 start_ts 之于快照读，相当于 ReadView 之于 InnoDB 快照读。</strong><br>
+    第二层就是 Part 4 要展开的东西——<em>分布式事务不是把 2PC 抄一遍，而是把单机 MVCC 那套版本机制搬到全局去</em>。</p>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>3.30 单个 Raft 组的吞吐天花板</h2>
+  <p>既然写全部经过 Leader，单个 Raft 组的写吞吐就被一台机器卡死了。生产上怎么办？</p>
+
+  <div style="display:grid;gap:8px;margin:16px 0">
+    <div class="pstep" style="border-color:var(--s1)"><div class="n" style="background:var(--s1)">1</div><div>
+      <div class="ti" style="font-weight:660">Multi-Raft / 分片 —— 唯一真正解决问题的手段</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">把 key space 切成成千上万个 Region/Shard，<strong>每个 Region 一个独立的 Raft 组</strong>，Leader 打散到全集群的机器上。单组不扩展，但组数可以无限扩展。TiKV、CockroachDB、YugabyteDB 全是这个路子。<br>
+      代价：跨 Region 的事务需要 2PC（Part 4），Region 的分裂/合并/调度本身成了一个复杂子系统（TiKV 的 PD）。</div></div></div>
+    <div class="pstep"><div class="n">2</div><div>
+      <div class="ti" style="font-weight:660">Batching + Pipelining</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">一次 <code>AppendEntries</code> 带几百条 entry；不等上一轮 ack 就发下一轮（<code>nextIndex</code> 乐观前移，失败再回退）。这两个优化通常能把吞吐拉高一个数量级，而且<strong>不改变任何安全性论证</strong>。</div></div></div>
+    <div class="pstep"><div class="n">3</div><div>
+      <div class="ti" style="font-weight:660">并行落盘</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">Leader 本地 fsync 和发给 follower 可以<strong>同时</strong>进行——论文并没有要求「先本地持久化再发出去」。等过半（含自己）落盘即可提交。这一步能砍掉一个完整的磁盘延迟。</div></div></div>
+    <div class="pstep"><div class="n">4</div><div>
+      <div class="ti" style="font-weight:660">Follower / Lease Read 卸载读</div>
+      <div class="de" style="font-size:13.5px;color:var(--ink-2)">只对读有用，而且如 §3.27 所说，省的是带宽和 CPU 不是 RTT。</div></div></div>
+  </div>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>顺手纠正一个常见误解</div>
+    <p style="margin-bottom:0">「节点从 3 加到 7，写会变慢」——<strong>延迟未必</strong>。提交只需要过半 ack，7 节点等的是<u>第 4 快</u>的那个节点，3 节点等的是<u>第 2 快</u>的。多了候选者，反而更容易避开某个临时抽风的慢节点（这叫 hedging 效应）。<br>
+    真正变差的是 <strong>Leader 的出向带宽（O(N)）</strong>和网络总流量。所以生产上用 3 或 5、极少到 7，理由是<em>带宽与收益递减</em>，不是延迟。<br>
+    <span style="color:var(--ink-3)">而节点数必须是奇数的理由你在 Part 0 就答对了：4 节点的过半是 3，容错能力和 3 节点（过半 2）一样都是 1，多花一台机器买不到任何东西。</span></p>
+  </div>
+</section>
+
+<section id="s7b">
+  <h2>3.31 追问篇：从 15 个问题里长出来的补充</h2>
+  <p class="lead">这一节来自学完本章后提出的 15 个追问。其中几个<strong>戳中了本章原版的错误</strong>——错误已经在正文、实验和 Lab 里改掉，这里列出来，因为「哪里容易想错」本身就是值得复习的内容。</p>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>勘误表</div>
+    <div class="grid-wrap"><table style="margin:8px 0 0">
+      <thead><tr><th style="width:24%">位置</th><th style="width:36%">原版说法</th><th>实际情况</th></tr></thead>
+      <tbody>
+        <tr><td>§3.28 冷启动沙盒 D</td><td>清空后用 <code>state=new</code> 重启会生成新的集群 ID</td><td>成员 ID = hash(peer URL + token)，集群 ID = hash(成员 ID)——<strong>同 token 同列表就是同一个集群</strong>。n1 在线时 etcd 拒绝启动；n1 不在线时放行，之后 n1 回归会覆盖已确认的写。</td></tr>
+        <tr><td>§3.28 冷启动沙盒 E</td><td>n1 的 <code>--initial-cluster</code> 写成三个成员</td><td>应该只有自己。Lab 里还为了凑出正确结果把三个节点都写成三成员——模型本身错了：<code>existing</code> 节点不组建集群，只加入。</td></tr>
+        <tr><td>§3.28 ② 配置生效时机</td><td>只讲了「一收到就生效」</td><td>那是论文的做法。etcd 是<strong>旧配置下提交、apply 时生效</strong>，并规定一次只能有一个未提交的配置变更。</td></tr>
+        <tr><td>§3.28 ③ 例外 2</td><td>新节点追日志时超时会捣乱</td><td>捣乱的是<strong>被移除的节点</strong>（disruptive servers）。新节点的问题是可用性；etcd 启动新成员时不带初始配置，不会发起选举。</td></tr>
+        <tr><td>Lab 3D-2</td><td>no-op 提交前 etcd/TiKV 会拒绝读</td><td>etcd raft 是<strong>排队</strong>（<code>pendingReadIndexMessages</code>）。</td></tr>
+        <tr><td>3-C §3.18</td><td>lastApplied 易失，重启置 0、重放即可</td><td>只对内存状态机成立。持久化状态机必须把 applied index <strong>和数据在同一个事务里</strong>落盘（etcd 的 <code>consistent_index</code>），否则非幂等命令会被执行两次。</td></tr>
+        <tr><td>Lab 3-B / 3-C 代码</td><td>follower 提交上限用 <code>min(leaderCommit, 自己的最后一条)</code></td><td>Figure 2 是 <em>index of last <strong>new</strong> entry</em>。在「每次发到末尾」的 Lab 里等价（修复后输出逐字节不变），一旦限制单条消息大小就不等价。</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <details class="q"><summary>一个 Raft 组就一定线性一致吗？</summary>
+    <div class="a"><p><strong>不一定。</strong>Raft 给你的是线性一致的<em>日志</em>，系统要线性一致还差两件事（论文 §8）：</p>
+    <ul style="margin:0 0 8px;padding-left:20px">
+      <li><strong>写要去重</strong>：Leader 提交了你的写但回复丢了，客户端重试 ⇒ 同一命令进日志两次、执行两次。需要客户端带唯一 ID + 序号，状态机记录每个客户端最后执行的序号。</li>
+      <li><strong>读要走 ReadIndex / Lease Read</strong>：本地读不线性一致。</li>
+    </ul>
+    <p style="margin-bottom:0">少任何一个，底下是 Raft 也不是线性一致。</p></div></details>
+
+  <details class="q"><summary>等 apply 的过程中 lease 过期了、Leader 下台了，这次读还算数吗？</summary>
+    <div class="a"><p><strong>算数。线性一致点是「确认成功的那一刻」，不是「真正读数据的那一刻」。</strong></p>
+    <p>ReadIndex：读请求到达后，Leader 发了一轮心跳收到过半响应——那一刻它确实是 Leader，readIndex 覆盖了此前所有已确认的写。readIndex 以内的条目已提交、永不回滚，之后它下台改变不了这些内容。等本地 apply 到 readIndex 再读，返回的就是那一刻的状态，而那一刻落在这次读的「发起—返回」区间内。Lease Read 同理：只要求接纳这次读时 lease 有效。</p>
+    <p>Follower Read：Leader 把 readIndex 交给 follower 后死了也没关系。follower 可能还没收到那些条目，但新 Leader 按 Leader 完整性一定有，会发过来。</p>
+    <p style="margin-bottom:0"><strong>确认还没完成</strong>就出事，这次读作废。etcd 早期这种读会挂到超时（issue #9566），现在有 <code>ErrLeaderChanged</code>（<em>etcdserver: leader changed</em>）让它尽快失败。等 apply 也有上限：<code>ErrTimeoutWaitAppliedIndex</code>。</p></div></details>
+
+  <details class="q"><summary>生产环境里 Raft 组的节点怎么放？延迟和吞吐大概多少？</summary>
+    <div class="a">
+    <div class="grid-wrap"><table style="margin:0 0 10px">
+      <thead><tr><th style="width:18%">放法</th><th style="width:48%">典型配置</th><th>写延迟主要看什么</th></tr></thead>
+      <tbody>
+        <tr><td><strong>同城多可用区</strong><br>（最常见）</td><td>3 副本跨 3 个 AZ。Spanner 的 regional 配置：3 个读写副本在 3 个 zone，2/3 成法定人数</td><td>fsync + 到最近副本的 RTT</td></tr>
+        <tr><td><strong>两地三中心</strong></td><td>TiDB 官方方案：5 副本按 2+2+1 放，Leader 只放主城市两个 AZ；同城 &lt; 3ms，异地约 20ms</td><td>仍是同城 RTT——主城市 4 个副本里凑 3 个就够，异地那个只做容灾</td></tr>
+        <tr><td><strong>多地域</strong></td><td>Spanner multi-region：两个读写地域各 2 副本 + 一个 witness 地域；写法定人数 = 默认 Leader 地域的 1 个 + 其余 4 个投票副本中任意 2 个</td><td>跨地域 RTT</td></tr>
+      </tbody>
+    </table></div>
+    <p>两地三中心<strong>扛得住异地机房挂，扛不住主城市整体挂</strong>：主城市两个 AZ 同时没了只剩 1/5，凑不齐过半，TiDB 文档明确说会暂时不可用。</p>
+    <p style="margin-bottom:0"><strong>公开数字</strong>：etcd 文档里同机房 RTT「几百微秒」、美国境内约 50ms、跨洲可达 400ms；SSD fsync 通常 &lt; 1ms。etcd 官方 benchmark（3 × 8 vCPU / 16GB / SSD）：单客户端写 583 QPS / 1.6ms，1000 客户端写 44,341 QPS / 22ms——单组写吞吐大约是「几万 QPS」量级，再往上靠 Multi-Raft。超时参数：etcd 默认心跳 100ms、选举 1000ms，建议心跳 ≈ 0.5–1.5 倍 RTT、选举 ≥ 10 倍 RTT；TiKV 默认 tick 1s、心跳 2 tick、选举 10 tick——一台机器上成千上万个 Raft 组，超时短了会互相踩。etcd 硬件指南建议成员尽量放在一个数据中心里。</p></div></details>
+
+  <details class="q"><summary>AppendEntries 里 entries 从中间开始和 follower 不一样，直接覆盖吗？</summary>
+    <div class="a"><p>Figure 2 接收方规则 3、4：<em>已有条目和新条目冲突（同 index 不同 term）⇒ 删掉这条及之后所有；追加日志里还没有的新条目</em>。逐条比：同 index 同 term 跳过，同 index 不同 term 从这里截断，不存在就追加。从中间开始不一样就覆盖——对，而且安全：prev 匹配 ⇒ 之前全部相同；冲突的那些必然未提交。</p>
+    <p><strong>容易漏的是那个「如果」：没有冲突时，绝不能截断。</strong>你的日志比这次 RPC 覆盖的范围长时，后面多出来的必须保留。网络会乱序：一个旧的、较短的 RPC 晚到了，如果无条件「截到 prevLogIndex 再追加」，就会删掉你已经告诉 Leader「我有了」的条目——Leader 可能已经靠你这一票提交了它们。</p>
+    <p style="margin-bottom:0">同理，更新 commitIndex 的上限是<strong>这次 RPC 里最后一条新条目</strong>（etcd：<code>commitTo(min(committed, lastnewi))</code>，<code>lastnewi = prev.index + len(entries)</code>），而不是自己的最后一条——后者可能是还没被验证过的旧条目。</p></div></details>
+
+  <details class="q"><summary>Batch 到底攒多少条才发？会不会拖慢写的响应？</summary>
+    <div class="a"><p>不是「攒够 N 条再发」，是<strong>自然批量</strong>：上一轮发送/落盘还在进行时到达的请求，下一轮一起带走。低负载时每轮 1 条，<u>不增加延迟</u>；高负载时每轮变慢、攒得更多，批量自动变大。fsync 同理（group commit）。etcd 文档：<em>etcd batches multiple requests together and submits them to Raft</em>。</p>
+    <p>限制的是<strong>上限</strong>：etcd 服务端单条消息 1MB、流水线窗口 512 条；TiKV 是 1MiB / 256。</p>
+    <p style="margin-bottom:0">「故意等一等凑批」的参数也有，但默认关着——比如 MySQL 的 <code>binlog_group_commit_sync_delay</code>，默认 0 微秒。等得越久批越大、吞吐越高、单次延迟越长：etcd benchmark 从单客户端到 1000 客户端，吞吐高了 76 倍，平均延迟也从 1.6ms 涨到 22ms。</p></div></details>
+
+  <details class="q"><summary>被移除的是 Leader：它 append 配置之后还接受写吗？</summary>
+    <div class="a"><p>按论文：<strong>继续接受</strong>。<code>C_new</code> 提交前它照常处理写、复制日志，只是算过半时不算自己；提交后下台。etcd raft 对应 <code>stepDownOnRemoval</code> 选项。</p>
+    <p style="margin-bottom:0">生产上一般<strong>先做 Leader 转移，再移除旧节点</strong>（<code>etcdctl move-leader</code>）。转移期间确实会<u>短暂停写</u>：etcd raft 丢弃转移期间的新 proposal，让目标节点追平日志；太久会报 <code>ErrTimeoutLeaderTransfer</code>。</p></div></details>
+
+  <details class="q"><summary>Raft 能解决并发写的数据竞争吗？</summary>
+    <div class="a"><p><strong>不能。</strong>线性一致是<em>单个操作</em>的性质。「读出来加一再写回去」是两个操作，并发执行时在完美线性一致的存储上照样丢更新——Part 4-A 矩阵里「丢失更新」那一行不在乎你底下是 InnoDB 还是 Raft。</p>
+    <p>Raft 解决「副本对顺序达成一致」；并发控制要在<strong>状态机里</strong>做：</p>
+    <ul style="margin:0 0 8px;padding-left:20px">
+      <li>读-改-写做成一条命令：<code>INCR x</code> 作为一个日志条目，apply 时原子执行；</li>
+      <li>条件写 / CAS：etcd 的 <code>Txn</code>（<code>If(mod_revision(key) == 42) Then(Put) Else(…)</code>），整个事务是一条日志，apply 时原子判断——本质就是快照隔离的 first-committer-wins；</li>
+      <li>锁/租约 + fencing token（Part 6）；跨 Raft 组的多 key 事务 → Percolator / 2PC（Part 4-C）。</li>
+    </ul>
+    <p style="margin-bottom:0"><strong>线性一致 ≠ 可串行化</strong>——又是 §3.27 那两条轴。Raft 给你前者，后者要自己搭。</p></div></details>
+
+  <details class="q"><summary>member add 发给谁？新节点的初始配置从哪来？它刚启动时认为过半是几？</summary>
+    <div class="a"><p><strong>发给任意成员都行</strong>：follower 收到的 proposal 会转发给 Leader（etcd raft 默认开启），由 Leader 写进日志。</p>
+    <p><strong>新节点的参数</strong>就是 <code>member add</code> 打印出来的：<code>--initial-cluster = 当时的成员 ∪ 自己</code>、<code>--initial-cluster-state=existing</code>。它启动时去 peer 那里拉集群当前成员，和自己的参数比对，对不上直接拒绝（<code>member count is unequal</code>）。</p>
+    <p><strong>它刚启动时对配置一无所知</strong>：etcd 启动加入者的 Raft 时不带任何初始成员（existing 路径传的是 nil，走 <code>raft.RestartNode</code>），它不认为自己是投票成员，不会发起选举，也不存在「它认为过半是几」。配置随 Leader 发来的快照/日志一起到达。</p>
+    <p style="margin-bottom:0"><strong>两道保护</strong>：加完之后已启动的成员必须还能凑齐过半，否则拒绝（<code>ErrNotEnoughStartedMembers</code>，唯一特许的是 1→2）；先 <code>member add --learner</code>、追平后 <code>member promote</code>，没追平会被拒（<code>ErrLearnerNotReady</code>）。</p></div></details>
+</section>
+
+<section id="s8">
+  <h2>3.32 自测题</h2>
+  <p>先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. Raft 的四个 index 分别是什么？哪些会被回滚？</summary>
+    <div class="a"><p><code>lastLogIndex</code>（已 append）、<code>matchIndex[i]</code>（Leader 记的各 follower 复制进度）、<code>commitIndex</code>（已提交）、<code>lastApplied</code>（已执行）。恒有 <code>lastLogIndex &gt;= commitIndex &gt;= lastApplied</code>。</p>
+    <p style="margin-bottom:0">只有 <code>lastLogIndex</code> 对应的那段尾巴<strong>会被回滚</strong>——未提交的日志随时可能被新 Leader 截断覆盖。<code>commitIndex</code> 以下的部分按定义永不回滚。<code>matchIndex</code> 是 Leader 的易失记账，新 Leader 上任会重置为 0 重新试探（3-B 的冲突回退）。</p></div></details>
+
+  <details class="q"><summary>2. 为什么 ReadIndex 必须有第三步？只做前两步会发生什么？</summary>
+    <div class="a"><p>前两步只保证「<code>readIndex</code> 这个<strong>数字</strong>是对的」——我确实还是 Leader，提交点确实是 7。但状态机是<strong>异步</strong> apply 的，此刻 <code>lastApplied</code> 可能才 5。</p>
+    <p style="margin-bottom:0">直接读状态机就会拿到 index=5 时刻的值，<strong>丢掉了 6、7 两条已提交的写</strong>。客户端刚收到「写入成功」，转头读到旧值，线性一致性破裂。<br>
+    第三步 <code>等 lastApplied &gt;= readIndex</code> 做的事情，就是<em>把日志的版本和状态机的版本对齐</em>。</p></div></details>
+
+  <details class="q"><summary>3. 新 Leader 为什么必须先提交一条 no-op？（至少说出两个理由）</summary>
+    <div class="a"><p><strong>理由一（读的正确性）</strong>：受 Figure 8 限制，新 Leader 不能直接提交旧任期的条目。它日志里那段「已复制到过半但没标记提交」的旧条目会一直悬着，<code>commitIndex</code> 停在偏小的位置。此时 <code>readIndex := commitIndex</code> 拿到的是过时的目标 ⇒ <strong>ReadIndex 前两步完美通过，照样读到旧值</strong>。no-op 是当前任期的条目，可以直接提交，一提交就把前面的旧条目顺带提交了（提交是前缀性的）。</p>
+    <p><strong>理由二（成员变更的前提）</strong>：单节点成员变更有个 2015 年才发现的坑——新 Leader 必须先提交一条自己任期的日志，才能安全地发起新的成员变更，否则可能基于一个后来被回滚的配置做决策。</p>
+    <p style="margin-bottom:0"><strong>理由三（顺带的好处）</strong>：复制 no-op 的过程顺便完成了所有 follower 的 <code>nextIndex</code> 回退试探。</p></div></details>
+
+  <details class="q"><summary>4. 「Dynamo 的 quorum 写」和「Raft 的日志 append」，具体差在哪？</summary>
+    <div class="a"><p>表面都是「等过半确认」，含义完全不同：</p>
+    <p><strong>Dynamo 的 W</strong>：把值发给 N 个副本，等 W 个回 ok。<em>这 W 个副本上的值可能互相不一致</em>——两个客户端并发写，不同副本收到的顺序不同，各存各的。冲突甩给读端（向量时钟 / LWW / CRDT）。这是<strong>数量</strong>的保证。</p>
+    <p style="margin-bottom:0"><strong>Raft 的提交</strong>：Leader 在 index=5 放了一条 entry，等过半 follower 复制了<u>这一条</u>。<em>过半节点的 index=5 一定是同一条 entry</em>（日志匹配性质）。并发写在到达 Leader 时就被定了序，<strong>根本不会产生冲突</strong>。这是<strong>内容与位置</strong>的保证。<br>
+    底层数学都是「两个过半集合必相交」，但一个用它保证「读能碰到最新值」，另一个用它保证「新 Leader 必持有全部已提交日志」。</p></div></details>
+
+  <details class="q"><summary>5. Raft 里有「quorum 读」吗？ReadIndex 那轮心跳算不算？</summary>
+    <div class="a"><p><strong>没有。</strong>Raft 不需要读过半副本再比较版本——读 Leader 一个就够了，因为 Leader 按定义持有全部已提交日志（Leader 完整性）。</p>
+    <p style="margin-bottom:0">ReadIndex 那轮心跳<em>形式上</em>要收过半响应，但它拿回来的不是数据，是<strong>「我还是不是 Leader」这一个 bit</strong>。数据一个字节都不从 follower 传。<br>
+    所以它和 Dynamo 的 R=3 在带宽上差着数量级，而且并发的读请求可以<strong>合并成一次心跳确认</strong>——这就是为什么 ReadIndex 对吞吐的影响远小于对单次延迟的影响。</p></div></details>
+
+  <details class="q"><summary>6. Follower Read 省了什么？不省什么？</summary>
+    <div class="a"><p><strong>不省</strong>那一轮确认 RTT——follower 仍然要向 Leader 要一个 <code>readIndex</code>，一致性保证完全来自 Leader 的那次确认。follower 还得等自己 <code>lastApplied &gt;= readIndex</code>。</p>
+    <p style="margin-bottom:0"><strong>省</strong>的是 Leader 的<em>数据传输带宽</em>和<em>状态机读取 CPU</em>。所以它对「读多写少 + 单次读结果大（范围扫描）」的负载收益明显，对「高频读小 key」几乎没用。<br>
+    注意别和 etcd 的 <code>--consistency=s</code> 混——那个<strong>不走 readIndex</strong>，是明确放弃线性一致换延迟。</p></div></details>
+
+  <details class="q"><summary>7. 成员配置存在哪？为什么「一收到就生效、不等提交」？</summary>
+    <div class="a"><p>存在日志里，是一条特殊的日志条目，走普通的 <code>AppendEntries</code> 复制；内容是 <strong>id → 地址的映射</strong>，不只是 id 集合。</p>
+    <p style="margin-bottom:0">不等提交是因为会死循环：<em>提交 C_new 要先知道「过半」是几个 → 「过半」取决于当前生效的配置 → 当前生效的配置取决于 C_new 提交了没有</em>。<br>
+    所以 Raft 论文选择立即采用。代价是这条配置可能被新 Leader 回滚，而<strong>单节点变更的交集性质</strong>（<code>maj_old + maj_new &gt; |C_old ∪ C_new|</code>）保证回滚期间也不会出现两个 Leader。<br>
+    <strong>但 etcd 的实现不一样</strong>：配置变更在旧配置下提交、<u>apply 时才生效</u>，同时规定一次只能有一个未提交的配置变更。两种做法都安全。</p></div></details>
+
+  <details class="q"><summary>8. 给集群加一个节点，会触发重新选举吗？</summary>
+    <div class="a"><p><strong>默认不会。</strong>Leader 继续是 Leader，只是算「过半」时用的数从 2 变成 3。<em>过半数变化 ≠ 需要重新选举</em>——Leader 的合法性来自任期和选票，不来自集群规模。</p>
+    <p style="margin-bottom:0">两个例外：<br>
+    ① <strong>被移除的是 Leader 自己</strong>——它在 <code>C_new</code> 提交后才退位，期间在管理一个不含自己的集群。<br>
+    ② <strong>被移除的节点</strong>收不到心跳、超时、自增 term 发起选举——term 更高会把现任 Leader 打下来，它自己又不在配置里选不上。解法是 PreVote（先问一轮、不实际自增 term）和 CheckQuorum（刚收到过心跳的节点忽略投票请求）。<br>
+    <span style="color:var(--ink-3)">新节点不会这样捣乱：etcd 启动新成员时不带初始配置，它不会发起选举。新节点的问题是追日志期间可能拖住提交，所以要先当 learner。</span></p></div></details>
+
+  <details class="q"><summary>9. 冷启动时，节点怎么知道集群里有谁、地址是什么？</summary>
+    <div class="a"><p>这是个鸡生蛋问题（配置在日志里，复制日志要先有配置），Raft 的答案是：<strong>初始配置必须从外部给，不能从日志来</strong>。两条路：</p>
+    <p><strong>静态引导</strong>：启动参数写死完整成员列表，如 etcd 的 <code>--initial-cluster infra0=http://...,infra1=http://...</code> 配 <code>--initial-cluster-state new</code> 和 <code>--initial-cluster-token</code>。地址就在这份列表里——<strong>Raft 自己不做服务发现</strong>，DNS SRV / K8s Service 只是帮你生成这份列表。</p>
+    <p style="margin-bottom:0"><strong>单节点引导</strong>：先起一台「只有我一个成员」的集群（自己就是过半，立刻当选），再逐个 <code>member add</code>。<br>
+    <strong>关键细节</strong>：<code>--initial-*</code> 只在 data dir 为空的首次启动生效。集群跑起来后成员信息存进了 data dir，改配置文件<em>不会</em>改变集群成员。</p></div></details>
+
+  <details class="q"><summary>10. 【综合】线上反馈「写接口返回成功了，立刻查却查不到」。用这一章的知识列出可能的原因。</summary>
+    <div class="a">
+    <p>按「从哪一层漏的」排查：</p>
+    <ol>
+      <li><strong>读走了本地读（最常见）。</strong>客户端读到的是某个节点直接返回的状态机内容，没走 ReadIndex。如果那个节点是僵尸 Leader 或落后的 follower，就会读到旧值。—— 查读请求用的是哪种一致性级别（etcd 的 serializable、TiDB 的 follower read 配置）。</li>
+      <li><strong>ReadIndex 少了第三步，或 apply 严重滞后。</strong><code>commitIndex</code> 和 <code>lastApplied</code> 的窗口被撑大了：状态机执行慢（大事务、存储引擎写放大、compaction 抢 IO）。—— 查 apply 延迟指标和 raft 落后指标。</li>
+      <li><strong>新 Leader 刚上任还没提交 no-op。</strong>窗口很短但真实存在，表现为「切主后几十毫秒内读到旧值」。—— 查读失败的时间点是否紧跟一次 leader 切换。</li>
+      <li><strong>写其实没成功。</strong>客户端超时后重试，第一次的响应丢在路上——这是 Part 0 的「第三态」，返回的「成功」可能是某次重试的，而真正生效的顺序和你以为的不同。</li>
+      <li><strong>读写路由到了不同的分片/集群。</strong>Multi-Raft 下 Region 发生了分裂或调度，客户端缓存的路由过期。</li>
+    </ol>
+    <p style="margin-bottom:0"><strong>诊断的分水岭</strong>：先确认「写是否真的 committed」（查 raft 日志的 index 和 term），再确认「读走的是哪条路径」。<em>前者是 Part 3-B 的问题，后者是这一章的问题——混在一起查会一直找不到。</em></p></div></details>
+</section>
+
+<section id="s9">
+  <h2>Lab 3-D · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/go/lab03d/</code>。这个 Lab 把上面四件事各做成一个可复现的数字实验。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>3D-1</strong><br>ReadIndex 的第三步</td><td>让 apply 线程故意滞后，然后<strong>开/关第三步</strong>各读 500 次，统计陈旧读的次数。前两步始终是开的——这样你能看清楚「前两步全对也不够」。</td></tr>
+      <tr><td><strong>3D-2</strong><br>no-op 的必要性</td><td>构造「上一任 Leader 复制完就崩」的场景，新 Leader 上任后<strong>发 / 不发 no-op</strong> 各跑 40 个种子，看不发 no-op 时 ReadIndex 读到旧值多少次；发 no-op 时，到得早的读会<strong>排队</strong>等 no-op 提交（etcd 的做法）。</td></tr>
+      <tr><td><strong>3D-3</strong><br>Quorum vs Raft</td><td>同一组并发写分别灌进 Dynamo 式 quorum 和 Raft，统计<strong>副本间分歧数</strong>和<strong>读到的版本数</strong>。前者产生冲突，后者恒为 1。</td></tr>
+      <tr><td><strong>3D-4</strong><br>冷启动</td><td>按 etcd 源码里的真实判断，一步步执行<strong>七个场景</strong>的启动与 <code>member add</code>：数形成了几个集群、几个 Leader、谁被拒绝启动、有没有已确认的写被覆盖。每一步都打印出来。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab03d &amp;&amp; go run .
+
+<span class="cm"># Java</span>
+cd ~/Code/distributed-systems-course/java/lab03d &amp;&amp; java Lab03D.java
+
+<span class="cm"># 常用参数</span>
+go run . -applylag 4      <span class="cm"># apply 线程滞后多少条</span>
+go run . -reads 500       <span class="cm"># 3D-1 的读次数</span>
+go run . -seeds 40        <span class="cm"># 3D-2 / 3D-3 的种子数</span>
+go run . -writers 3       <span class="cm"># 3D-3 并发写的客户端数</span>
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完后回答</div>
+    <p style="margin-bottom:0">1) 3D-1 里把 <code>-applylag</code> 从 1 调到 8，陈旧读次数怎么变？这条曲线在生产上对应什么现象？<br>
+    2) 3D-2 里不发 no-op 时，读到旧值的那些种子有什么共同点？<em>提示：看上一任 Leader 崩溃的时机。</em><br>
+    3) 3D-3 里把 W 调到 N（全写），Dynamo 那边还会有分歧吗？<em>会。想清楚为什么——这说明 W 大小根本不是冲突的成因。</em><br>
+    4) 3D-4 的 D1 和 D2 操作完全一样，结局一个是「停写但数据还在」，一个是「已确认的写被覆盖」。<em>差别只在 n1 当时在不在线——为什么一个节点在不在线能决定这么多？</em>再对比 B：B 是分叉（两份数据都在），D2 是覆盖（有一份消失了）。</p>
+  </div>
+
+  <h3>Part 3 到此真正结束</h3>
+  <p>回头看这四章的结构：<strong>3-A 选谁当 Leader，3-B Leader 怎么把日志复制对，3-C 怎么活到生产，3-D 算法和系统之间的接缝。</strong>贯穿始终的还是那一条——<em>两个过半集合必然相交</em>——它在 Raft 里一共出现了四次，你已经全部见过了。</p>
+  <p><strong>下一站：Part 4 · 事务。</strong>我们先补单机的功课（ACID、隔离级别、四类并发异常、MVCC 与快照隔离），这不是绕路——§3.29 末尾那「第二层版本」就是它。然后才进分布式：2PC/XA、TCC、Saga、本地消息表与事务消息、Percolator、Calvin、Spanner 的外部一致性。<br>
+  到那时你会看到 3-A 埋下的那个伏笔兑现：<em>2PC 的阻塞问题，在协调者本身是一个 Raft 组的时候就消失了</em>。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+function wrapT(root){(root||document).querySelectorAll("table").forEach(t=>{
+  const pa=t.parentElement; if(pa&&pa.classList.contains("grid-wrap"))return;
+  const d=document.createElement("div"); d.className="grid-wrap";
+  pa.insertBefore(d,t); d.appendChild(t);});}
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 1 · 四个 index 与读的第三步
+   ══════════════════════════════════════════════════════════════════ */
+const S1={log:[],match:[0,0,0,0],commit:0,applied:0,last:null};
+function maj1(){
+  // Leader 自己的 matchIndex 就是 lastLogIndex
+  const all=S1.match.concat([S1.log.length]).slice().sort((a,b)=>b-a);
+  return all[2]; // 5 个节点里第 3 大 = 过半都达到的最大值
+}
+function draw1(){
+  const n=S1.log.length;
+  let tape="",mk="";
+  if(n===0){tape='<div style="color:var(--ink-3);font-size:13px;padding:8px 0">日志为空——点「客户端写」开始</div>';}
+  for(let i=1;i<=n;i++){
+    let cls="cell uncommitted";
+    if(i<=S1.applied)cls="cell applied"; else if(i<=S1.commit)cls="cell commit";
+    tape+='<div class="'+cls+'"><div><b>'+i+'</b><br><span style="font-size:10px">x='+i+'</span></div></div>';
+    let m=[];
+    if(i===S1.applied)m.push('<span style="color:var(--s1)">▲app</span>');
+    if(i===S1.commit)m.push('<span style="color:var(--s3)">▲cmt</span>');
+    if(i===n)m.push('<span style="color:var(--warn)">▲last</span>');
+    mk+='<div class="mkc">'+m.join('<br>')+'</div>';
+  }
+  $("#t1").innerHTML=tape; $("#m1").innerHTML=mk;
+  const mx=Math.max(n,1);
+  const rows=[
+    ["lastLogIndex",n,"var(--warn)"],
+    ["commitIndex",S1.commit,"var(--s3)"],
+    ["lastApplied",S1.applied,"var(--s1)"]
+  ];
+  let h="";
+  for(const [k,v,c] of rows){
+    h+='<div class="idxrow"><div class="nm">'+k+' = <b style="color:'+c+'">'+v+'</b></div>'+
+       '<div class="meter"><i style="width:'+(v/mx*100)+'%;background:'+c+'"></i></div></div>';
+  }
+  h+='<div class="idxrow"><div class="nm" style="color:var(--ink-3)">matchIndex[]</div>'+
+     '<div style="font-family:var(--mono);font-size:12px;color:var(--ink-2)">N2='+S1.match[0]+
+     '　N3='+S1.match[1]+'　N4='+S1.match[2]+'　N5='+S1.match[3]+
+     '　<span style="color:var(--ink-3)">（过半达到 '+maj1()+'）</span></div></div>';
+  $("#ib1").innerHTML=h;
+  if(S1.last)$("#o1").innerHTML=S1.last;
+  wrapT($("#o1"));
+}
+$("#b1w").onclick=()=>{if(S1.log.length<9){S1.log.push(1);S1.last=null;$("#o1").innerHTML="";draw1();}};
+$("#b1rep").onclick=()=>{S1.match=S1.match.map(m=>Math.min(m+1,S1.log.length));S1.last=null;$("#o1").innerHTML="";draw1();};
+$("#b1cm").onclick=()=>{S1.commit=Math.max(S1.commit,maj1());S1.last=null;$("#o1").innerHTML="";draw1();};
+$("#b1ap").onclick=()=>{S1.applied=Math.min(S1.applied+1,S1.commit);S1.last=null;$("#o1").innerHTML="";draw1();};
+$("#b1reset").onclick=()=>{S1.log=[];S1.match=[0,0,0,0];S1.commit=0;S1.applied=0;S1.last=null;$("#o1").innerHTML="";draw1();};
+$("#b1read").onclick=()=>{
+  const wait=$("#b1wait").checked, ri=S1.commit;
+  let h='<div class="note '+(wait||S1.applied>=ri?"ok":"crit")+'" style="margin:0">';
+  h+='<div class="note-h"><span class="dot" style="background:var(--'+(wait||S1.applied>=ri?"ok":"crit")+')"></span>ReadIndex 读 x</div>';
+  h+='<table style="margin:8px 0 0"><thead><tr><th style="width:16%">步骤</th><th style="width:32%">做了什么</th><th>结果</th></tr></thead><tbody>';
+  h+='<tr><td><strong>1</strong></td><td><code>readIndex := commitIndex</code></td><td>readIndex = <strong>'+ri+'</strong></td></tr>';
+  h+='<tr><td><strong>2</strong></td><td>发一轮心跳，收过半响应</td><td><span style="color:var(--ok)">✓ 我仍是合法 Leader</span></td></tr>';
+  if(wait){
+    const waited=Math.max(0,ri-S1.applied);
+    h+='<tr><td><strong>3</strong></td><td>等 <code>lastApplied &gt;= readIndex</code></td><td>'+
+       (waited>0?'<span style="color:var(--s4)">阻塞，等 apply 追 '+waited+' 条</span>':'<span style="color:var(--ok)">已满足，无需等待</span>')+'</td></tr>';
+    h+='</tbody></table>';
+    S1.applied=ri;
+    const v=ri===0?"（初始值，尚无写入提交）":"x = "+ri;
+    h+='<p style="margin:12px 0 0">返回 <strong style="font-size:16px">'+v+'</strong>　—— 这是 index='+ri+' 处的值，'+
+       '正是<u>此刻全集群已提交的最新值</u>。<strong>线性一致 ✓</strong></p>';
+  }else{
+    h+='<tr><td><strong style="color:var(--crit)">3</strong></td><td><span style="color:var(--crit)">跳过，直接读状态机</span></td>'+
+       '<td>状态机只重放到 lastApplied = <strong>'+S1.applied+'</strong></td></tr>';
+    h+='</tbody></table>';
+    const v=S1.applied===0?"（初始值）":"x = "+S1.applied;
+    const lost=ri-S1.applied;
+    h+='<p style="margin:12px 0 0">返回 <strong style="font-size:16px">'+v+'</strong>';
+    if(lost>0){
+      h+='　—— 而已提交的最新值是 <strong>x = '+ri+'</strong>。<br>'+
+         '<strong style="color:var(--crit)">丢了 '+lost+' 条已提交的写。</strong>客户端在写 x='+ri+' 时已经收到过「成功」，'+
+         '现在读回来却是 x='+(S1.applied||0)+'——<u>线性一致性破裂</u>。<br>'+
+         '<em>注意：前两步全部正确通过了。</em>确认自己是 Leader、拿到正确的提交点，都不能替代「等状态机追上来」。';
+    }else{
+      h+='　—— 这次恰好 <code>lastApplied == commitIndex</code>，没出事。<br>'+
+         '<span style="color:var(--s4)">再多写几条、多点几次「推进 commitIndex」而少点「apply」，把窗口拉开再读一次。</span>';
+    }
+    h+='</p>';
+  }
+  h+='</div>';
+  S1.last=h; draw1();
+};
+draw1();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 2 · no-op 的必要性
+   ══════════════════════════════════════════════════════════════════ */
+const S2={i:0};
+function steps2(noop){
+  const base=[
+   {t:"任期 2：Leader N1 把 3 条写复制到了过半",
+    nodes:[["N1","L",2,"1,2,3",3,3],["N2","F",2,"1,2,3",0,0],["N3","F",2,"1,2,3",0,0],["N4","F",2,"—",0,0],["N5","F",2,"—",0,0]],
+    note:"N1 把 <code>x=1,2,3</code> 复制给了 N2、N3，<strong>{N1,N2,N3} 已经过半</strong>。<br>"+
+         "于是 N1 把自己的 <code>commitIndex</code> 推到 3，并<strong style='color:var(--s3)'>回复客户端「x=3 写入成功」</strong>。<br>"+
+         "<span style='color:var(--ink-3)'>注意 N2、N3 的 commitIndex 还是 0——它们要等下一个 AppendEntries 里的 leaderCommit 才知道。</span>"},
+   {t:"N1 在广播 leaderCommit 之前崩溃了",
+    nodes:[["N1","D",2,"1,2,3",3,3],["N2","F",2,"1,2,3",0,0],["N3","F",2,"1,2,3",0,0],["N4","F",2,"—",0,0],["N5","F",2,"—",0,0]],
+    note:"<strong>「x=3 已提交」这个事实随着 N1 一起消失了。</strong><br>"+
+         "日志还在（N2、N3 手里有），但没有任何活着的节点知道它已经提交。<br>"+
+         "<em>这正是 commitIndex 不持久化、也不在节点间传递的代价——它是可推导的，但要有人去推。</em>"},
+   {t:"N2 当选任期 3 的 Leader",
+    nodes:[["N2","L",3,"1,2,3",0,0],["N3","F",3,"1,2,3",0,0],["N4","F",3,"—",0,0],["N5","F",3,"—",0,0],["N1","D",2,"1,2,3",3,3]],
+    note:"N2 日志最新（3 条），拿到 {N2,N3,N4} 的票当选。<br>"+
+         "但它的 <code>commitIndex</code> 是 <strong style='color:var(--crit)'>0</strong>。<br>"+
+         "它想提交 index 1~3 吗？想。能吗？<strong>不能</strong>——那是任期 2 的条目，<u>Figure 8 那条限制不让它直接提交</u>。"}
+  ];
+  if(noop){
+    base.push({t:"N2 立刻 append 一条 no-op（index 4, 任期 3）并复制",
+     nodes:[["N2","L",3,"1,2,3,<b style='color:var(--s3)'>ø</b>",4,4],["N3","F",3,"1,2,3,ø",0,0],["N4","F",3,"1,2,3,ø",0,0],["N5","F",3,"—",0,0],["N1","D",2,"1,2,3",3,3]],
+     note:"no-op 是<strong>当前任期</strong>的条目，复制到 {N2,N3,N4} 过半后<u>可以直接提交</u>。<br>"+
+          "而提交是<strong>前缀性</strong>的——index 4 一提交，1、2、3 <strong style='color:var(--s3)'>被顺带提交了</strong>。<br>"+
+          "<code>commitIndex: 0 → 4</code>，然后 apply 追上，<code>lastApplied = 4</code>。"});
+    base.push({t:"客户端 ReadIndex 读 x",ok:true,
+     nodes:[["N2","L",3,"1,2,3,ø",4,4],["N3","F",3,"1,2,3,ø",4,4],["N4","F",3,"1,2,3,ø",4,4],["N5","F",3,"—",0,0],["N1","D",2,"1,2,3",3,3]],
+     note:"① <code>readIndex := commitIndex = 4</code>　② 心跳过半确认 ✓　③ <code>lastApplied=4 &gt;= 4</code> ✓<br>"+
+          "返回 <strong style='font-size:16px;color:var(--ok)'>x = 3</strong>　—— 正是客户端上次写成功的那个值。<strong>线性一致 ✓</strong>"});
+  }else{
+    base.push({t:"N2 不发 no-op，安静地等着",
+     nodes:[["N2","L",3,"1,2,3",0,0],["N3","F",3,"1,2,3",0,0],["N4","F",3,"—",0,0],["N5","F",3,"—",0,0],["N1","D",2,"1,2,3",3,3]],
+     note:"没有新写入进来，也没有 no-op。<br>"+
+          "<strong style='color:var(--crit)'>commitIndex 会一直停在 0</strong>——不是暂时的，是永久的，直到下一次有写入。<br>"+
+          "状态机一条都没 apply，<code>lastApplied = 0</code>。"});
+    base.push({t:"客户端 ReadIndex 读 x",bad:true,
+     nodes:[["N2","L",3,"1,2,3",0,0],["N3","F",3,"1,2,3",0,0],["N4","F",3,"—",0,0],["N5","F",3,"—",0,0],["N1","D",2,"1,2,3",3,3]],
+     note:"① <code>readIndex := commitIndex = <b style='color:var(--crit)'>0</b></code>　② 心跳过半确认 <span style='color:var(--ok)'>✓ 通过</span>　③ <code>lastApplied=0 &gt;= 0</code> <span style='color:var(--ok)'>✓ 通过</span><br>"+
+          "返回 <strong style='font-size:16px;color:var(--crit)'>（初始值，x 不存在）</strong><br>"+
+          "<strong>可客户端明明收到过「x=3 写入成功」。</strong>这是一次货真价实的线性一致性破裂——<br>"+
+          "<em>而 ReadIndex 的三步一步没少、全部通过了。</em>问题出在第 1 步拿到的 <code>commitIndex</code> 本身就是错的。"});
+  }
+  return base;
+}
+function draw2(){
+  const noop=$("#b2noop").checked, st=steps2(noop), i=Math.min(S2.i,st.length-1), s=st[i];
+  $("#c2t").innerHTML="步骤 "+(i+1)+" / "+st.length+" · "+s.t;
+  let h="";
+  for(const [nm,role,term,log,cm,ap] of s.nodes){
+    const bc=role==="L"?"L":role==="D"?"D":"F";
+    const lbl=role==="L"?"LEADER":role==="D"?"CRASHED":"follower";
+    h+='<div class="rnode"'+(role==="D"?' style="opacity:.45"':'')+'>'+
+       '<div class="h"><span>'+nm+'</span><span class="badge '+bc+'">'+lbl+'</span></div>'+
+       '<div style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">term '+term+'<br>log ['+log+']<br>'+
+       'commit <b style="color:'+(cm>0?"var(--s3)":"var(--ink-3)")+'">'+cm+'</b>　applied <b style="color:'+(ap>0?"var(--s1)":"var(--ink-3)")+'">'+ap+'</b></div></div>';
+  }
+  $("#v2").innerHTML=h;
+  const cls=s.bad?"crit":s.ok?"ok":"";
+  $("#o2").innerHTML='<div class="note '+cls+'" style="margin:0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--'+(s.bad?"crit":s.ok?"ok":"s1")+')"></span>'+s.t+'</div>'+
+    '<p style="margin-bottom:0">'+s.note+'</p></div>';
+  $("#b2step").textContent = i>=st.length-1 ? "已到最后一步" : "下一步 ▸";
+  $("#b2step").disabled = i>=st.length-1;
+  wrapT($("#o2"));
+}
+$("#b2step").onclick=()=>{S2.i++;draw2();};
+$("#b2reset").onclick=()=>{S2.i=0;draw2();};
+$("#b2noop").onchange=()=>{S2.i=0;draw2();};
+draw2();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 3 · Quorum vs Raft
+   ══════════════════════════════════════════════════════════════════ */
+function rng(seed){let s=(seed>>>0)||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};}
+const VN=["A","B","C","D"], VC=["var(--s1)","var(--s2)","var(--s3)","var(--s4)"];
+const LOSS=0.22;
+function bind3(){
+  const ids=[["i3n","l3n"],["i3w","l3w"],["i3r","l3r"],["i3c","l3c"],["i3s","l3s"]];
+  for(const [a,b] of ids){$("#"+a).oninput=()=>{
+    if(a==="i3n"){const n=+$("#i3n").value;$("#i3w").max=n;$("#i3r").max=n;
+      if(+$("#i3w").value>n)$("#i3w").value=n; if(+$("#i3r").value>n)$("#i3r").value=n;
+      $("#l3w").textContent=$("#i3w").value; $("#l3r").textContent=$("#i3r").value;}
+    $("#"+b).textContent=$("#"+a).value; run3();};}
+}
+function chip3(v){
+  if(v<0)return '<span class="chip" style="color:var(--ink-3)">∅</span>';
+  return '<span class="chip" style="background:'+VC[v]+';border-color:'+VC[v]+';color:#fff">x='+VN[v]+'</span>';
+}
+function run3(){
+  const N=+$("#i3n").value,W=+$("#i3w").value,R=+$("#i3r").value,C=+$("#i3c").value,seed=+$("#i3s").value;
+  const rnd=rng(seed*2654435761);
+  /* ---------- ① Dynamo 式 quorum ---------- */
+  const deliv=[]; // deliv[c][r] = true/false
+  for(let c=0;c<C;c++){const row=[];for(let r=0;r<N;r++)row.push(rnd()>LOSS);deliv.push(row);}
+  const wok=[]; for(let c=0;c<C;c++)wok.push(deliv[c].filter(Boolean).length>=W);
+  const repD=[]; const arrivals=[];
+  for(let r=0;r<N;r++){
+    const got=[];for(let c=0;c<C;c++)if(deliv[c][r])got.push(c);
+    for(let i=got.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[got[i],got[j]]=[got[j],got[i]];}
+    arrivals.push(got); repD.push(got.length?got[got.length-1]:-1);
+  }
+  const distinctAll=new Set(repD.filter(v=>v>=0));
+  const readSet=[];{const idx=[];for(let r=0;r<N;r++)idx.push(r);
+    for(let i=idx.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[idx[i],idx[j]]=[idx[j],idx[i]];}
+    for(let i=0;i<R;i++)readSet.push(idx[i]);}
+  const readVers=new Set(readSet.map(r=>repD[r]).filter(v=>v>=0));
+  let ha='<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">'+
+    C+' 个客户端<strong>同时</strong>向任意副本写同一个 key；每个写各自发往全部 '+N+' 个副本，收到 '+W+' 个 ack 就算成功。<br>'+
+    '<span style="color:var(--ink-3)">网络有 '+Math.round(LOSS*100)+'% 丢包，各副本收到的<u>顺序</u>也不同。</span></div>';
+  ha+='<table style="margin:0"><thead><tr><th style="width:22%">副本</th><th style="width:34%">收到的到达顺序</th><th>最终保存</th></tr></thead><tbody>';
+  for(let r=0;r<N;r++){
+    ha+='<tr><td><code>R'+(r+1)+'</code></td><td style="font-family:var(--mono);font-size:11.5px">'+
+        (arrivals[r].length?arrivals[r].map(c=>VN[c]).join(" → "):'<span style="color:var(--ink-3)">（都没收到）</span>')+
+        '</td><td>'+chip3(repD[r])+'</td></tr>';
+  }
+  ha+='</tbody></table>';
+  ha+='<div style="margin-top:10px;font-size:13px">写入结果：'+
+      wok.map((o,c)=>'<span class="chip" style="margin-right:5px;'+(o?'':'opacity:.5')+'">x='+VN[c]+(o?' 成功':' 失败')+'</span>').join("")+'</div>';
+  ha+='<div style="margin-top:8px;font-size:13px">读 R='+R+' 个副本 {'+readSet.map(r=>"R"+(r+1)).join(",")+'} → 拿回 <strong style="color:'+
+      (readVers.size>1?"var(--crit)":"var(--ink)")+'">'+readVers.size+' 个不同版本</strong>'+
+      (readVers.size>1?'　<span style="color:var(--crit)">⇒ 必须由读端裁决（向量时钟 / LWW / CRDT）</span>':'')+'</div>';
+  $("#d3a").innerHTML=ha;
+  /* ---------- ② Raft ---------- */
+  const order=[];for(let c=0;c<C;c++)order.push(c);
+  for(let i=order.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+  const maj=Math.floor(N/2)+1;
+  let hb='<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:8px">'+
+    '同样 '+C+' 个客户端同时写，但全部请求<strong>先到 Leader</strong>。Leader 按到达先后分配 index，再复制；'+
+    '过半（'+maj+'/'+N+'）确认即提交。<br><span style="color:var(--ink-3)">同样的丢包率，靠重试 + nextIndex 回退补齐。</span></div>';
+  hb+='<div class="grid-wrap"><div class="tape">';
+  order.forEach((c,i)=>{hb+='<div class="cell commit"><div><b>'+(i+1)+'</b><br><span style="font-size:10px">x='+VN[c]+'</span></div></div>';});
+  hb+='</div></div><div style="font-size:12px;color:var(--ink-3);margin-top:4px">Leader 的日志（所有副本最终一模一样）</div>';
+  hb+='<table style="margin:12px 0 0"><thead><tr><th style="width:22%">副本</th><th style="width:34%">日志</th><th>最终保存</th></tr></thead><tbody>';
+  const winner=order[order.length-1];
+  for(let r=0;r<N;r++){
+    hb+='<tr><td><code>R'+(r+1)+'</code>'+(r===0?' <span class="badge L">LEADER</span>':'')+'</td>'+
+        '<td style="font-family:var(--mono);font-size:11.5px">'+order.map(c=>VN[c]).join(" → ")+'</td>'+
+        '<td>'+chip3(winner)+'</td></tr>';
+  }
+  hb+='</tbody></table>';
+  hb+='<div style="margin-top:10px;font-size:13px">写入结果：'+
+      order.map(c=>'<span class="chip" style="margin-right:5px">x='+VN[c]+' 成功</span>').join("")+
+      '<span style="color:var(--ink-3)">（全部成功，且有明确先后）</span></div>';
+  hb+='<div style="margin-top:8px;font-size:13px">读 Leader 一个 → 拿回 <strong style="color:var(--ok)">1 个版本</strong>　'+
+      '<span style="color:var(--ink-3)">⇒ 无需任何冲突解决</span></div>';
+  $("#d3b").innerHTML=hb;
+  /* ---------- 结论 ---------- */
+  const div=distinctAll.size;
+  let ho='<div class="note '+(div>1?"crit":"")+'" style="margin:0"><div class="note-h">'+
+    '<span class="dot" style="background:var(--'+(div>1?"crit":"s1")+')"></span>对照</div>'+
+    '<table style="margin:8px 0 0"><thead><tr><th style="width:34%"></th><th style="width:33%">Dynamo 式 Quorum</th><th>Raft</th></tr></thead><tbody>'+
+    '<tr><td>副本间不同的最终值</td><td><strong style="color:'+(div>1?"var(--crit)":"var(--ink)")+'">'+div+' 种</strong></td><td><strong style="color:var(--ok)">1 种</strong></td></tr>'+
+    '<tr><td>一次读拿回的版本数</td><td><strong>'+readVers.size+'</strong></td><td><strong>1</strong></td></tr>'+
+    '<tr><td>写有全局先后吗</td><td><strong style="color:var(--crit)">没有</strong>（各副本看到的顺序都不同）</td><td><strong style="color:var(--ok)">有</strong>（index 就是全序）</td></tr>'+
+    '<tr><td>谁负责解决冲突</td><td>读端 / 应用层</td><td><em>不存在冲突</em></td></tr>'+
+    '</tbody></table>';
+  if(div>1){
+    ho+='<p style="margin:12px 0 0"><strong>看清楚左边发生了什么</strong>：'+C+' 个写全都「成功」了（各自收到 &ge; '+W+' 个 ack），'+
+        '但 '+N+' 个副本手里拿着 <strong>'+div+' 种不同的值</strong>。<br>'+
+        '没有任何一个副本是「错」的——<em>它们只是看到了不同的到达顺序</em>。这就是 Part 2 讲的最终一致：'+
+        '系统承诺的是「最后会收敛」，不是「此刻一致」，更不是「收敛到你想要的那个」。<br>'+
+        '<strong>把 W 调到 '+N+'（全写）再跑一次</strong>——分歧照样存在。<u>W 决定的是写端何时收到 ack，和副本间是否一致毫无关系。</u></p>';
+  }else{
+    ho+='<p style="margin:12px 0 0"><span style="color:var(--s4)">这个种子下左边恰好没出现分歧</span>（丢包让并发写没真正撞上）。'+
+        '<strong>拖动种子多试几个</strong>，或把并发客户端数调到 3~4——分歧会稳定出现。<br>'+
+        '关键在于：Raft 那边<em>无论什么种子、什么参数，分歧数恒为 1</em>。这不是概率问题，是结构问题。</p>';
+  }
+  ho+='</div>';
+  $("#o3").innerHTML=ho;
+  wrapT($("#d3a"));wrapT($("#d3b"));wrapT($("#o3"));
+}
+bind3(); $("#b3run").onclick=()=>{$("#i3s").value=(+$("#i3s").value%60)+1;$("#l3s").textContent=$("#i3s").value;run3();};
+run3();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 4 · 冷启动沙盒
+   按 etcd 源码里的真实判断一步步执行（与 Lab 3D-4 的 Go/Java 模型完全一致）：
+   ① data dir 有数据 ⇒ 忽略 --initial-*，回到原集群
+   ② state=new 且 data dir 空 ⇒ 先问其他成员「我是不是已经被引导过」（isMemberBootstrapped），
+      有知情者说是 ⇒ 拒绝启动；问不到人 ⇒ 按参数引导
+   ③ state=existing ⇒ 不引导，去 peer 拉当前成员配置，与自己的参数比对，一致才加入
+   集群 ID = hash(所有成员 ID)，成员 ID = hash(peer URL + token) ⇒ 同 token 同列表 = 同一个集群
+   ══════════════════════════════════════════════════════════════════ */
+const FULL=["n1","n2","n3"];
+const ND=(id,cl,st,tk,o)=>Object.assign({id,cl,st,tk,data:false,wiped:false,term:0,dd:"空"},o||{});
+const SC4=[
+ {n:"A · 正确的静态引导",
+  desc:"三台机器拿到<strong>同一份</strong>成员列表、同一个 token，data dir 都是空的。",
+  nodes:[ND("n1",FULL,"new","T1"),ND("n2",FULL,"new","T1"),ND("n3",FULL,"new","T1")],
+  steps:[{k:"start",n:"n1"},{k:"start",n:"n2"},{k:"start",n:"n3"}],
+  cls:"ok",
+  concl:"<strong style='color:var(--ok)'>这就是期望的结果。</strong>一个集群、一个 Leader、容错 1 台。<br>"+
+    "「有几台机器」和「怎么访问到对方」<u>全部来自那份 <code>--initial-cluster</code></u>——Raft 自己不做服务发现。"},
+ {n:"B · 一个节点的列表写错",
+  desc:"运维在 n3 的启动脚本里漏掉了另外两台，<code>--initial-cluster</code> 只写了它自己。<strong>没有任何报错。</strong>",
+  nodes:[ND("n1",FULL,"new","T1"),ND("n2",FULL,"new","T1"),ND("n3",["n3"],"new","T1")],
+  steps:[{k:"start",n:"n1"},{k:"start",n:"n2"},{k:"start",n:"n3"}],
+  cls:"crit",
+  concl:"<strong style='color:var(--crit)'>最危险的一种：两个集群，两个 Leader，都能写。</strong><br>"+
+    "n3 的成员列表不同 ⇒ 集群 ID 不同 ⇒ 两边互不承认。n3 自己就是过半（1/1），立刻开始服务。<br>"+
+    "如果客户端的连接串里同时有这三个地址，写请求会随机落进两个完全不相干的集群，数据分叉且<strong>永远无法自动合并</strong>。<br>"+
+    "<em>从 n3 的视角看，它的集群运行得完美无瑕——它只是不知道另外两台的存在。</em>"},
+ {n:"C · token 不同",
+  desc:"n3 的 <code>--initial-cluster-token</code> 和另外两台不一致（比如复制配置时改了一半）。",
+  nodes:[ND("n1",FULL,"new","T1"),ND("n2",FULL,"new","T1"),ND("n3",FULL,"new","T2")],
+  steps:[{k:"start",n:"n1"},{k:"start",n:"n2"},{k:"start",n:"n3"}],
+  cls:"warn",
+  concl:"<strong style='color:var(--warn)'>比 B 好——因为它失败得很响。</strong><br>"+
+    "token 是成员 ID 的一部分 ⇒ n3 眼里的集群 ID 和 n1/n2 的不同 ⇒ 被拒之门外；它自己认为集群有 3 个成员 ⇒ 凑不齐过半，卡在启动中。<br>"+
+    "n1、n2 那边能工作，但<strong>容错能力是 0</strong>——再挂一台就停写。<br>"+
+    "<em>token 存在的意义就是这个：宁可不让你进来，也不能让你进错门。</em>"},
+ {n:"D1 · 清空两台后 state=new 重启（n1 在线）",
+  desc:"集群跑了半年，n2、n3 出了问题。运维<strong>清空了它们的 data dir</strong>，用 <code>--initial-cluster-state new</code>、<strong>同一个 token、同一份列表</strong>重启。n1 没动，在线。",
+  nodes:[ND("n1",FULL,"existing","T1",{data:true,term:12,dd:"<span style='color:var(--s3)'>有半年的数据（任期 12）</span>"}),
+         ND("n2",FULL,"new","T1",{wiped:true,dd:"<span style='color:var(--crit)'>已清空</span>"}),
+         ND("n3",FULL,"new","T1",{wiped:true,dd:"<span style='color:var(--crit)'>已清空</span>"})],
+  steps:[{k:"start",n:"n1"},{k:"start",n:"n2"},{k:"start",n:"n3"}],
+  cls:"warn",
+  concl:"<strong style='color:var(--warn)'>etcd 的保护生效了：停写，但数据还在。</strong><br>"+
+    "关键事实：成员 ID = hash(peer URL + token)，集群 ID = hash(所有成员 ID)。<strong>同 token + 同列表 ⇒ 集群 ID 完全相同</strong>——"+
+    "n2、n3 不是在建「另一个集群」，而是在<u>冒充已经存在的成员</u>。<br>"+
+    "<code>state=new</code> 启动前，etcd 会先问列表里的其他成员「我是不是已经被引导过」（<code>isMemberBootstrapped</code>：远端记录里这个成员发布过客户端地址 = 引导过）。"+
+    "n1 说「是」⇒ 拒绝启动：<code>member … has already been bootstrapped</code>。<br>"+
+    "此时过半已经丢了，连 <code>member remove</code> 都提交不了。正确的恢复路径：在 n1 上用 <code>--force-new-cluster</code> 重建单成员集群，再逐个 <code>member add</code> 新成员。"},
+ {n:"D2 · 同上，但 n1 当时不在线",
+  desc:"同 D1 的操作。区别只有一个：n2、n3 重启时 <strong>n1 恰好不在线</strong>（比如也在维修），过了一阵才回来。",
+  nodes:[ND("n1",FULL,"existing","T1",{data:true,term:12,dd:"<span style='color:var(--s3)'>有半年的数据（任期 12）</span>"}),
+         ND("n2",FULL,"new","T1",{wiped:true,dd:"<span style='color:var(--crit)'>已清空</span>"}),
+         ND("n3",FULL,"new","T1",{wiped:true,dd:"<span style='color:var(--crit)'>已清空</span>"})],
+  steps:[{k:"start",n:"n2"},{k:"start",n:"n3"},{k:"write",c:5},{k:"start",n:"n1"}],
+  cls:"crit",
+  concl:"<strong style='color:var(--crit)'>最阴险的一种：确认过的写，被静默覆盖了。</strong><br>"+
+    "那道检查问不到任何知情者就<u>放行</u>了（源码里联系不上就返回 false）。n2、n3 用<strong>同一个集群 ID</strong> 引导，任期从 0 重来，在任期 2 里选出 Leader、确认了 5 条写。<br>"+
+    "n1 回来时任期 12：现任 Leader 给它发心跳，它回一个带任期 12 的响应（etcd 专门为此设计的机制），现任 Leader 立刻下台；"+
+    "n1 的日志最后一条任期 12 &gt; 2 ⇒ 更新 ⇒ <strong>n1 当选，把任期 2 里确认过的 5 条写全部覆盖</strong>。老数据回来了，新数据消失了。<br>"+
+    "如果 n1 永远不回来：集群健康、能读能写，<strong>半年的数据没了</strong>。<br>"+
+    "<em>根因回到 3-C：清空 data dir = 同时丢掉 currentTerm、votedFor、log 三样必须落盘的东西。任期倒退，才会出现「任期 2 的 Leader」这种本不该存在的东西，它提交的内容不受 Raft 保护。</em>"},
+ {n:"E · 单节点引导 + member add",
+  desc:"先起一台「成员只有我自己」的集群，再用 <code>member add</code> 逐个加入；新节点用 <code>state=existing</code>，列表 = 当时的成员 ∪ 自己。",
+  nodes:[ND("n1",["n1"],"new","T1"),ND("n2",["n1","n2"],"existing","T1"),ND("n3",FULL,"existing","T1")],
+  steps:[{k:"start",n:"n1"},{k:"add",n:"n2"},{k:"start",n:"n2"},{k:"add",n:"n3"},{k:"start",n:"n3"}],
+  cls:"ok",
+  concl:"<strong style='color:var(--ok)'>同样正确，而且不需要提前知道最终拓扑。</strong><br>"+
+    "每个 <code>existing</code> 节点的 <code>--initial-cluster</code> = 当时的成员 ∪ 自己——这正是 <code>member add</code> 打印给你的内容。它<u>不组建任何东西，只是加入</u>：从 peer 拉成员配置、和自己的参数比对、一致才启动；Raft 启动时不带初始成员，配置随 Leader 的快照/日志到达。<br>"+
+    "注意 n1 的 <code>--initial-cluster</code> 一直是「只有自己」，这没关系：集群跑起来后成员信息在 data dir 里。<br>"+
+    "<span style='color:var(--ink-3)'>勘误：上一版这里把 n1 的列表写成了三个成员，是错的。</span>"},
+ {n:"F · E 的最后一步，n3 的列表漏了 n2",
+  desc:"和 E 一样，但启动 n3 时手滑，<code>--initial-cluster</code> 只写了 n1 和自己。之后又想再加一台 n4。",
+  nodes:[ND("n1",["n1"],"new","T1"),ND("n2",["n1","n2"],"existing","T1"),ND("n3",["n1","n3"],"existing","T1"),
+         ND("n4",["n1","n2","n3","n4"],"existing","T1")],
+  steps:[{k:"start",n:"n1"},{k:"add",n:"n2"},{k:"start",n:"n2"},{k:"add",n:"n3"},{k:"start",n:"n3"},{k:"add",n:"n4"}],
+  cls:"warn",
+  concl:"<strong style='color:var(--warn)'>失败得很响，但留下了一个隐患。</strong><br>"+
+    "n3 的参数和集群当前成员对不上 ⇒ 拒绝启动（<code>member count is unequal</code>）。可 <code>member add n3</code> 已经提交了：集群现在是 3 个成员、2 个在线——还能服务，<strong>容错能力却是 0</strong>。<br>"+
+    "这时想再加 n4，etcd 会拒绝（<code>ErrNotEnoughStartedMembers</code>：加完后已启动的成员凑不齐过半）。<br>"+
+    "<em>这就是「一次只加一个、确认正常了再加下一个」的原因，也是先 <code>member add --learner</code>、追平后再 <code>promote</code> 的原因。</em>"}
+];
+function boot4(nodes,steps){
+  const cfg={}; nodes.forEach(n=>cfg[n.id]=n);
+  const byKey={}, r={clusters:[],refused:[],rejected:[],lost:0,log:[]};
+  const key=(tk,cl)=>tk+"/"+cl.slice().sort().join(",");
+  const same=(a,b)=>a.length===b.length&&a.slice().sort().join()===b.slice().sort().join();
+  const L=(t,sub)=>r.log.push({t,sub:!!sub});
+  const mk=(k,mem)=>{ if(byKey[k])return byKey[k];
+    const c={key:k,mem:mem.slice(),on:{},term:0,reset:false,writes:0,idx:r.clusters.length+1};
+    byKey[k]=c; r.clusters.push(c); return c; };
+  const n_on=c=>Object.keys(c.on).length, need=c=>Math.floor(c.mem.length/2)+1, lead=c=>n_on(c)>=need(c);
+  const lab=c=>"集群#"+c.idx+"{"+c.mem.join(",")+"}";
+  const of=id=>r.clusters.find(c=>c.on[id]);
+  for(const st of steps){
+    const n=cfg[st.n];
+    if(st.k==="start"){
+      if(n.data){
+        const c=mk(key(n.tk,n.cl),n.cl), before=lead(c); c.on[n.id]=1;
+        L("启动 "+n.id+"：data dir 有数据（任期 "+n.term+"）⇒ 忽略 --initial-*，回到原集群");
+        if(c.reset&&lead(c)&&n.term>c.term){
+          L(n.id+" 的任期 "+n.term+" &gt; 现任 Leader 的 "+c.term+" ⇒ 现任 Leader 下台",1);
+          L(n.id+" 的日志更新（最后一条任期 "+n.term+" &gt; "+c.term+"）⇒ 当选，覆盖其他节点的日志",1);
+          if(c.writes>0){ L("任期 "+c.term+" 里确认过的 "+c.writes+" 条写<strong style='color:var(--crit)'>全部被覆盖</strong>",1); r.lost+=c.writes; }
+          c.term=n.term+1; c.writes=0;
+        }else if(!before&&lead(c)){ if(!c.term)c.term=n.term+1; L(lab(c)+" 凑齐过半（"+n_on(c)+"/"+c.mem.length+"），选出 Leader",1); }
+        else if(!lead(c)) L(lab(c)+" 只有 "+n_on(c)+"/"+c.mem.length+" 在线，凑不齐过半，无法选主",1);
+      }else if(n.st==="new"){
+        const k=key(n.tk,n.cl), ex=byKey[k];
+        if(ex){ const knows=ex.mem.find(m=>m!==n.id&&ex.on[m]&&cfg[m]&&cfg[m].data);
+          if(knows){ L("启动 "+n.id+"（state=new）：先问 "+knows+"「我是不是已经被引导过」⇒ "+knows+" 说是");
+            L("<strong style='color:var(--warn)'>拒绝启动</strong>：member "+n.id+" has already been bootstrapped",1);
+            r.refused.push(n.id); continue; } }
+        const existed=!!ex, others=r.clusters.length, c=mk(k,n.cl);
+        if(n.wiped)c.reset=true;
+        const before=lead(c); c.on[n.id]=1;
+        L(n.cl.length===1?"启动 "+n.id+"（state=new，列表只有自己）⇒ 引导一个单成员集群 "+lab(c)
+                         :"启动 "+n.id+"（state=new）：列表里没有能证明它被引导过的在线成员 ⇒ 按参数引导 "+lab(c));
+        if(!existed&&others>0) L("token 或成员列表和已有的集群不同 ⇒ 成员 ID、集群 ID 都不同 ⇒ 这是另一个集群，两边互不承认",1);
+        if(!before&&lead(c)&&!c.term){ c.term=2; L(lab(c)+" 凑齐过半（"+n_on(c)+"/"+c.mem.length+"），选出 Leader，任期 2",1); }
+        if(before&&lead(c)) L("加入，"+n_on(c)+"/"+c.mem.length+" 在线",1);
+        if(!lead(c)) L(lab(c)+" 只有 "+n_on(c)+"/"+c.mem.length+" 在线，凑不齐过半，无法选主",1);
+      }else{
+        let c=null; for(const p of n.cl){ if(p!==n.id){ c=of(p); if(c)break; } }
+        if(!c){ L("启动 "+n.id+"（state=existing）：列表里的 peer 都连不上 ⇒ <strong style='color:var(--warn)'>拒绝启动</strong>：cannot fetch cluster info"); r.refused.push(n.id); continue; }
+        if(!same(n.cl,c.mem)){
+          L("启动 "+n.id+"（state=existing）：自己的列表 ["+n.cl.join(" ")+"] ≠ 集群当前成员 ["+c.mem.join(" ")+"]");
+          L("<strong style='color:var(--warn)'>拒绝启动</strong>："+(n.cl.length!==c.mem.length?"member count is unequal":"PeerURLs: no match found for existing member"),1);
+          r.refused.push(n.id); continue; }
+        const before=lead(c); c.on[n.id]=1;
+        L("启动 "+n.id+"（state=existing）：从 peer 拉到成员配置 ["+c.mem.join(" ")+"]，与自己的参数一致 ⇒ 加入");
+        L("Raft 启动时不带初始成员，配置随 Leader 的快照/日志到达（"+n_on(c)+"/"+c.mem.length+" 在线）",1);
+        if(!before&&lead(c)) L("重新凑齐过半，恢复服务",1);
+      }
+    }else if(st.k==="add"){
+      const c=r.clusters.find(lead);
+      if(!c){ L("member add "+st.n+" ⇒ 没有能服务的 Leader，配置变更提交不了"); r.rejected.push(st.n); continue; }
+      const nm=c.mem.length+1, ns=n_on(c);
+      if(!(ns===1&&nm===2)&&ns<Math.floor(nm/2)+1){
+        L("member add "+st.n+" ⇒ <strong style='color:var(--warn)'>拒绝</strong>：加完后成员 "+nm+"、已启动 "+ns+" &lt; 过半 "+(Math.floor(nm/2)+1)+"（ErrNotEnoughStartedMembers）");
+        r.rejected.push(st.n); continue; }
+      c.mem.push(st.n);
+      L("member add "+st.n+" ⇒ 一条配置变更日志，提交后成员变为 ["+c.mem.join(" ")+"]（集群 ID 不变）");
+      if(!lead(c)) L("现在过半要 "+need(c)+" 个、在线只有 "+n_on(c)+" 个：在 "+st.n+" 启动之前集群停写（etcd 对 1→2 特许这种情况）",1);
+    }else if(st.k==="write"){
+      const c=r.clusters.find(lead);
+      if(c){ c.writes+=st.c; L("客户端写入 "+st.c+" 条 ⇒ "+lab(c)+" 在任期 "+c.term+" 提交并<strong>确认</strong>"); }
+    }
+  }
+  r.lead=lead; r.n_on=n_on; r.need=need; r.lab=lab;
+  return r;
+}
+let S4={s:0,ran:false};
+function draw4(){
+  const sc=SC4[S4.s];
+  $$("#sc4 button").forEach(b=>b.classList.toggle("act",+b.dataset.s===S4.s));
+  let h='<div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">'+sc.desc+'</div>';
+  h+='<table style="margin:0"><thead><tr><th style="width:9%">节点</th><th style="width:34%">--initial-cluster</th>'+
+     '<th style="width:17%">--initial-cluster-state</th><th style="width:10%">token</th><th>data dir</th></tr></thead><tbody>';
+  for(const nd of sc.nodes){
+    h+='<tr><td><code>'+nd.id+'</code></td>'+
+       '<td style="font-family:var(--mono);font-size:11.5px">'+nd.cl.map(x=>x+"=…:2380").join(",")+'</td>'+
+       '<td><code>'+nd.st+'</code></td><td><code>'+nd.tk+'</code></td><td>'+nd.dd+'</td></tr>';
+  }
+  h+='</tbody></table>';
+  h+='<div style="margin-top:12px;font-size:12.5px;color:var(--ink-2)"><strong>运维操作顺序：</strong>'+
+     sc.steps.map((st,i)=>'<span class="chip" style="margin:2px 4px 2px 0">'+(i+1)+'. '+
+       (st.k==="start"?"启动 "+st.n:st.k==="add"?"member add "+st.n:"客户端写 "+st.c+" 条")+'</span>').join("")+'</div>';
+  $("#cfg4").innerHTML=h;
+  if(!S4.ran){$("#o4").innerHTML='<p class="hint" style="margin:0">点「启动集群」，按顺序执行上面的操作。</p>';wrapT($("#cfg4"));return;}
+  const r=boot4(sc.nodes,sc.steps);
+  let o='<div class="card" style="margin:0 0 12px"><div class="card-t">逐步发生了什么</div>'+
+    r.log.map(e=>'<div style="font-size:13px;line-height:1.7;'+(e.sub?'padding-left:22px;color:var(--ink-2)':'color:var(--ink);margin-top:6px')+'">'+
+      (e.sub?'⇒ ':'▸ ')+e.t+'</div>').join("")+'</div>';
+  o+='<table style="margin:0 0 12px"><thead><tr><th style="width:34%">形成的集群</th><th style="width:16%">成员</th>'+
+     '<th style="width:16%">在线</th><th style="width:14%">过半需要</th><th>状态</th></tr></thead><tbody>';
+  for(const c of r.clusters){
+    const on=Object.keys(c.on);
+    o+='<tr><td><code>'+r.lab(c)+'</code></td><td>'+c.mem.length+' 个</td><td>'+on.length+' 个 {'+on.join(",")+'}</td><td>'+r.need(c)+'</td>'+
+       '<td>'+(r.lead(c)?'<strong style="color:var(--s2)">有 Leader，在服务</strong>':'<strong style="color:var(--ink-3)">凑不齐过半，停写</strong>')+'</td></tr>';
+  }
+  o+='</tbody></table>';
+  const nLead=r.clusters.filter(r.lead).length;
+  o+='<div class="stats" style="margin-top:0">'+
+     '<div class="stat"><div class="k">集群数</div><div class="v">'+r.clusters.length+'</div></div>'+
+     '<div class="stat"><div class="k">能服务的 Leader</div><div class="v" style="color:'+(nLead>1?"var(--crit)":"var(--ink)")+'">'+nLead+'</div></div>'+
+     '<div class="stat"><div class="k">被拒启动</div><div class="v">'+(r.refused.length?r.refused.join(","):"—")+'</div></div>'+
+     '<div class="stat"><div class="k">被覆盖的已确认写</div><div class="v" style="color:'+(r.lost?"var(--crit)":"var(--ink)")+'">'+r.lost+'</div></div>'+
+     '</div>';
+  o+='<div class="note '+sc.cls+'" style="margin:14px 0 0"><div class="note-h">'+
+     '<span class="dot" style="background:var(--'+sc.cls+')"></span>结论</div>'+
+     '<p style="margin-bottom:0">'+sc.concl+'</p></div>';
+  $("#o4").innerHTML=o;
+  wrapT($("#cfg4"));wrapT($("#o4"));
+}
+$$("#sc4 button").forEach(b=>b.onclick=()=>{S4.s=+b.dataset.s;S4.ran=false;draw4();});
+$("#b4run").onclick=()=>{S4.ran=true;draw4();};
+$("#b4reset").onclick=()=>{S4.ran=false;draw4();};
+draw4();
+wrapT(document.querySelector("main"));
+
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

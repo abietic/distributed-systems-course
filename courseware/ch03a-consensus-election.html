@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 3-A · 共识与 Raft 选举</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+.scen{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.scen button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.three{grid-template-columns:1fr}}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.axm{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:10px 0}
+.axm .b{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--s1);
+  width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px}
+.role{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;letter-spacing:.03em}
+.role.F{background:color-mix(in srgb,var(--s1) 22%,transparent);color:var(--s1)}
+.role.C{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.role.L{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.role.D{background:color-mix(in srgb,var(--crit) 18%,transparent);color:var(--crit)}
+.ladder{display:grid;gap:6px;margin:16px 0}
+.lrung{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:start;padding:11px 15px;
+  background:var(--surface);border:1px solid var(--border);border-radius:9px}
+.lrung .nm{font-weight:660;color:var(--ink);font-size:14px}
+.lrung .en{font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+.lrung .de{font-size:13.5px;color:var(--ink-2)}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 3-A</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：三个名字，一件事</a>
+    <a href="#s1">3.1 共识问题的定义</a>
+    <a href="#s2">3.2 FLP 不可能性</a>
+    <a href="#s3">3.3 2PC 为什么不是共识</a>
+    <a href="#s3" class="sub">▸ 实验：2PC 阻塞复现</a>
+    <a href="#s4">3.4 Raft 全景</a>
+    <a href="#s5">3.5 任期：一个逻辑时钟</a>
+    <a href="#s6">3.6 选举规则</a>
+    <a href="#s6" class="sub">▸ 实验：Raft 选举模拟器</a>
+    <a href="#s7">3.7 分裂投票与随机化</a>
+    <a href="#s7" class="sub">▸ 实验：随机化对照</a>
+    <a href="#s8">3.8 工业系统里的它</a>
+    <a href="#s9">3.9 自测题（10 题）</a>
+    <a href="#s10">Lab 3-A · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 3-A · Consensus &amp; Leader Election</div>
+  <h1>让一群机器对同一件事做出同一个决定</h1>
+  <p class="lead">前两章有三个地方，我都用了同一句话搪塞过去：<em>"想要这个保证，就得走一遍共识。"</em>——线性一致的读写要共识，全序广播要共识，防脑裂的选主要共识。这一章开始把这句话拆开。</p>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>先记住这个等价关系，它是整个 Part 3 的骨架</div>
+    <p style="margin-bottom:0;font-size:15px;text-align:center;margin-top:6px">
+      <span class="chip">共识 consensus</span> ≡ <span class="chip">全序广播 total order broadcast</span> ≡ <span class="chip">状态机复制 state machine replication</span></p>
+    <p style="margin-bottom:0;margin-top:12px">三者可以互相归约，解决了一个就等于解决了全部三个：<br>
+    • 有了共识，就能对"下一条日志是什么"反复达成一致 ⟹ 得到一个所有人顺序相同的日志 ⟹ <strong>全序广播</strong><br>
+    • 有了全序广播，把日志喂给确定性状态机 ⟹ 所有副本状态相同 ⟹ <strong>状态机复制</strong><br>
+    • 有了状态机复制，把"提议的值"作为一条日志 ⟹ 所有人读出的第一条就是共识结果 ⟹ <strong>共识</strong><br>
+    所以当你在 Raft 里写日志复制的时候，你写的就是一个全序广播协议。</p>
+  </div>
+
+  <div class="card">
+    <div class="card-t">3-A 这一节的范围</div>
+    <ul style="margin-bottom:0">
+      <li>共识问题的<strong>精确定义</strong>（四条属性），以及为什么"少数服从多数"不是答案</li>
+      <li><strong>FLP 不可能性</strong>：它到底否定了什么，工程上怎么绕过去</li>
+      <li><strong>2PC 为什么不是共识</strong>——一个至今仍在坑人的区别，附阻塞复现实验</li>
+      <li>Raft 的<strong>任期 term</strong>：它其实是 Part 1 学过的东西</li>
+      <li><strong>选举的全部规则</strong>，以及一个真正跑起来的选举模拟器</li>
+      <li>随机化选举超时：Raft 绕过 FLP 的那一招</li>
+    </ul>
+    <p style="margin:12px 0 0;font-size:13.5px;color:var(--ink-3)">3-B 讲日志复制与五条安全性属性，3-C 讲持久化、快照、成员变更与线性一致读。</p>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>3.1 共识问题的精确定义</h2>
+  <p>"让大家达成一致"听起来很模糊。学术上的共识问题有四条精确属性，一个算法必须同时满足前三条才叫解决了共识：</p>
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--crit)"><div><div class="nm">一致同意</div><div class="en">agreement</div></div>
+      <div class="de">没有两个正确节点会决定不同的值。<strong>这是安全性，绝对不能违反</strong>——违反了就是脑裂、数据分叉。</div></div>
+    <div class="lrung" style="border-color:var(--crit)"><div><div class="nm">合法性</div><div class="en">validity / integrity</div></div>
+      <div class="de">被决定的值必须是某个节点真的提议过的（不能凭空造一个），且每个节点最多决定一次。<br>
+        <span style="color:var(--ink-3);font-size:13px">这条排除了"所有人永远输出 0"这种作弊解法。</span></div></div>
+    <div class="lrung" style="border-color:var(--s1)"><div><div class="nm">终止性</div><div class="en">termination</div></div>
+      <div class="de">每个正确节点<strong>最终</strong>都会决定某个值。<strong>这是活性</strong>——违反了只是暂时不可用，网络恢复后会自愈。<br>
+        <span style="color:var(--ink-3);font-size:13px">注意"最终"没有时限。FLP 攻击的正是这一条。</span></div></div>
+  </div>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>为什么"少数服从多数"不是共识算法</div>
+    <p style="margin-bottom:0">"大家投票，票多的赢"看起来天经地义，但它没有回答最难的部分：<em>怎么知道投票已经结束了？</em><br>
+    你收到了 3 票赞成、1 票反对，还有 1 个节点没回复。它是崩溃了（那就是 3:1，赞成方赢），还是网络慢（它的反对票在路上，那就是 3:2，赞成方还是赢）？——这次没关系。但如果是 2 票赞成、2 票反对、1 个未知呢？<strong>你必须等，而等待没有上界</strong>（Part 0 §0.5 的原罪）。<br>
+    共识算法的全部工作，就是在"永远无法确定投票是否结束"的前提下，仍然保证不会有两个不同的决定。</p>
+  </div>
+</section>
+
+<section id="s2">
+  <h2>3.2 FLP 不可能性：它到底说了什么</h2>
+  <p>1985 年 Fischer、Lynch、Paterson 证明了一个结果，通常被简称为 FLP：</p>
+  <div class="note crit">
+    <p style="margin-bottom:0;font-size:15.5px">在一个<strong>完全异步</strong>的系统中，只要<strong>哪怕一个</strong>节点可能崩溃，就<strong>不存在</strong>一个既保证安全性（一致同意）又保证一定终止的确定性共识算法。</p>
+  </div>
+  <p>每一个限定词都很重要，去掉任何一个结论就不成立：</p>
+  <table>
+    <thead><tr><th style="width:24%">限定词</th><th>含义，以及去掉它会怎样</th></tr></thead>
+    <tbody>
+      <tr><td><strong>完全异步</strong></td><td>消息延迟没有任何上界，进程速度没有任何下界。<br><strong>去掉它</strong>（改成"部分同步"：大部分时候网络是正常的）→ 共识就可解了。这正是所有实用算法的做法。</td></tr>
+      <tr><td><strong>哪怕一个崩溃</strong></td><td>只要允许一个节点崩溃。<br><strong>去掉它</strong>（假设永不崩溃）→ 平凡可解，但这个假设毫无意义。</td></tr>
+      <tr><td><strong>确定性</strong></td><td>算法不使用随机数。<br><strong>去掉它</strong>（引入随机化）→ 可以得到"以概率 1 终止"的算法。<em>Raft 的随机化选举超时正是走的这条路。</em></td></tr>
+      <tr><td><strong>一定终止</strong></td><td>要求在有限步内必然结束。<br><strong>放宽它</strong>（只要求"网络稳定时终止"）→ 可解。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>直觉：为什么会不可能</h3>
+  <p>证明的核心是构造一个"永远做不了决定"的调度。直觉版本是这样的：</p>
+  <div class="axm"><div class="b">1</div><div>系统总有一个时刻处于<strong>"二价"状态</strong>（bivalent）——即根据接下来消息到达的顺序，最终结果既可能是 0 也可能是 1。初始状态一定是二价的（因为初始提议可以不同）。</div></div>
+  <div class="axm"><div class="b">2</div><div>要做出决定，系统必须从二价状态走到<strong>"单价"状态</strong>（结果已注定）。那么必然存在某一条"临界消息"，收到它之前是二价、之后是单价。</div></div>
+  <div class="axm"><div class="b">3</div><div>但敌手（调度器）可以<strong>把这条临界消息无限延迟</strong>。而由于异步 + 允许崩溃，其他节点无法区分"这条消息很慢"和"发它的节点死了"（<em>又是 Part 0 的原罪</em>），所以它们不敢在没有它的情况下做决定。<br>系统被永远卡在二价状态。</div></div>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>FLP 不是"共识做不了"，而是"共识不能同时要安全和保证终止"</div>
+    <p style="margin-bottom:0">所有实用算法的策略都一样：<strong>死保安全性，把活性变成"通常很快、极端情况下可能卡住"</strong>。<br>
+    Raft 网络分区时少数派永远选不出 leader（活性没了），但绝不会出现两个 leader（安全性还在）。这就是 Part 2 说的 CP：<em>宁可停下，不可出错。</em><br>
+    绕过 FLP 的三种工程手段：<strong>① 部分同步假设</strong>（超时+重试，认为网络终会正常）、<strong>② 随机化</strong>（Raft 的随机超时，让活锁以概率 1 被打破）、<strong>③ 故障检测器</strong>（把"谁死了"外包给一个不完美但可用的模块）。</p>
+  </div>
+</section>
+<section id="s3">
+  <h2>3.3 两阶段提交为什么不是共识</h2>
+  <p>2PC（two-phase commit）是分布式事务的经典方案，很多人以为它就是"分布式共识"。<strong>它不是</strong>，而且区别很致命。</p>
+  <p>流程只有两步：</p>
+  <div class="axm"><div class="b">1</div><div><strong>准备阶段</strong>：协调者问所有参与者"能提交吗？"参与者做完全部工作、写好 redo/undo 日志、<strong>持有锁不放</strong>，然后回答 yes 或 no。回答 yes 之后，它就<em>失去了单方面中止的权利</em>——必须等协调者的最终指令。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>提交阶段</strong>：协调者收齐全部 yes 就广播 commit，否则广播 abort。参与者照做，释放锁。</div></div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>致命缺陷：协调者在两个阶段之间崩溃</div>
+    <p style="margin-bottom:0">参与者已经回答了 yes、锁已经拿着、事务既不能提交也不能回滚——因为它不知道其他参与者答了什么，也不知道协调者最终决定了什么。<br>
+    它只能<strong>无限期等待协调者恢复</strong>。这段时间里，它持有的行锁会把所有访问这些行的事务全部堵死。<em>这就是 2PC 臭名昭著的"阻塞"问题。</em></p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 2PC 阻塞复现</div><div class="s">在最坏的时刻杀死协调者</div></div>
+    <div class="lab-b">
+      <div class="scen" id="sc1">
+        <button data-s="0" class="act">正常提交</button>
+        <button data-s="1">有人投 no → 全体回滚</button>
+        <button data-s="2">收齐 yes 后、发 commit 前杀协调者</button>
+        <button data-s="3">commit 只发出去一半就杀协调者</button>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b1step">下一步 ▸</button>
+        <button id="b1auto">自动播放</button>
+        <button id="b1reset">重来</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv1" viewBox="0 0 720 232" style="width:100%;height:auto;display:block"></svg></div>
+      <div id="o1" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <h3>3PC 补上了吗？没有</h3>
+  <p>三阶段提交在准备和提交之间插入一个 "pre-commit" 阶段，让参与者能在协调者失联时<em>自行推断</em>结果，从而不阻塞。代价是多一轮 RTT，而且——<strong>它在网络分区下会破坏安全性</strong>：分区两侧可能一侧超时后自行 abort、另一侧自行 commit，直接数据分叉。<em>3PC 用安全性换活性，方向反了，所以工业界基本没人用。</em></p>
+
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>2PC 与共识的本质区别</div>
+    <table style="margin:10px 0 0">
+      <thead><tr><th style="width:22%"></th><th style="width:39%">2PC</th><th>共识（Raft / Paxos）</th></tr></thead>
+      <tbody>
+        <tr><td><strong>需要多少票</strong></td><td><strong>全体一致</strong>。任何一个参与者不可达，事务就做不下去。</td><td><strong>过半即可</strong>。少数节点挂掉完全不影响。</td></tr>
+        <tr><td><strong>可用性</strong></td><td>是所有节点可用性的<em>乘积</em> —— 节点越多越脆弱。</td><td>随节点增多而<em>提升</em>（能容忍更多故障）。</td></tr>
+        <tr><td><strong>协调者故障</strong></td><td><strong>无限阻塞</strong>，没有内建的接替机制。</td><td>自动选出新 leader，几百毫秒内恢复。</td></tr>
+        <tr><td><strong>解决的问题</strong></td><td><em>原子性</em>：一个事务在多个<strong>不同的</strong>数据分片上要么全做要么全不做。</td><td><em>一致性</em>：<strong>同一份</strong>数据的多个副本保持一致。</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:12px 0 0"><strong>它们解决的根本不是同一个问题，所以不是替代关系，而是配合关系。</strong>Spanner 和 TiDB 的做法是：<em>用 2PC 做跨分片的原子提交，每个分片内部用 Raft/Paxos 做复制，并且把协调者本身也做成一个 Raft 组</em>——这样协调者崩溃后新 leader 能接着推进，阻塞问题就消失了。<span style="color:var(--ink-3)">Part 4 会详细讲这个组合。</span></p>
+  </div>
+</section>
+
+<section id="s4">
+  <h2>3.4 Raft 全景：把共识拆成三个子问题</h2>
+  <p>Paxos 早在 1989 年就解决了共识，但它以难懂著称——Lamport 的原始论文用古希腊议会做比喻，很多人读完仍然写不出代码。2014 年 Ongaro 和 Ousterhout 发表 Raft，<strong>设计目标明确写着"可理解性"</strong>。它的核心手段是<em>分解</em>：</p>
+  <div class="three">
+    <div class="card" style="margin:0;border-color:var(--s1)">
+      <div class="card-t" style="color:var(--s1)">① 领导者选举</div>
+      <p style="font-size:13.5px;margin-bottom:0">任何时刻集群里最多有一个 leader。leader 挂了要能自动选出新的。<br><strong>← 这一节（3-A）</strong></p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s3)">
+      <div class="card-t" style="color:var(--s3)">② 日志复制</div>
+      <p style="font-size:13.5px;margin-bottom:0">leader 接收客户端请求，追加到自己的日志，复制给 follower，过半确认后提交。<br><strong>← 3-B</strong></p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s7)">
+      <div class="card-t" style="color:var(--s7)">③ 安全性</div>
+      <p style="font-size:13.5px;margin-bottom:0">五条属性，保证已提交的日志永不丢失、永不被覆盖，哪怕经历任意次选举。<br><strong>← 3-B / 3-C</strong></p>
+    </div>
+  </div>
+
+  <p>Raft 的<strong>强 leader 设计</strong>是它比 Paxos 简单的主要原因：日志只从 leader 流向 follower，方向单一，不存在多个提议者互相竞争的复杂情况。代价是 leader 成为写入瓶颈，且 leader 切换期间短暂不可用。</p>
+
+  <h3>三种角色</h3>
+  <table>
+    <thead><tr><th style="width:16%">角色</th><th style="width:34%">职责</th><th>转换条件</th></tr></thead>
+    <tbody>
+      <tr><td><span class="role F">Follower</span></td><td>被动。只响应 leader 和 candidate 的 RPC，自己不发起任何请求。</td><td>选举计时器超时（一直没收到 leader 心跳）→ 变 Candidate</td></tr>
+      <tr><td><span class="role C">Candidate</span></td><td>发起选举，向所有节点索票。</td><td>获得过半票 → Leader；<br>收到<em>合法 leader</em> 的心跳 → 退回 Follower；<br>再次超时 → 任期 +1，重新选举</td></tr>
+      <tr><td><span class="role L">Leader</span></td><td>处理所有客户端请求，周期性发送心跳压制其他节点的选举计时器。</td><td>发现更高任期 → 立刻退回 Follower</td></tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <p style="margin-bottom:0"><strong>一条贯穿始终的规则，比什么都重要：</strong><br>
+    <em>任何节点，任何时候，只要看到比自己大的任期号，就立刻更新自己的任期并退回 Follower。</em><br>
+    这一条保证了旧 leader 一接触到集群就会自动退位，不需要任何人去"通知"它下台。</p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2>3.5 任期：你已经学过它了</h2>
+  <p>Raft 把时间切成一段一段的<strong>任期（term）</strong>，每个任期是一个连续递增的整数，以一次选举开始。每个任期最多有一个 leader（也可能一个都没有，如果那次选举分裂了）。</p>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>term 就是一个 Lamport 逻辑时钟</div>
+    <p style="margin-bottom:0">回想 Part 1：Lamport 时钟的规则是"本地事件 +1，收到消息取 max 再 +1"。Raft 的 term 完全一样——<br>
+    • 发起选举（本地事件）→ <code>term++</code><br>
+    • 收到任何带更大 term 的消息 → <code>term = max(term, 收到的)</code>，并退回 Follower<br>
+    • 收到带更小 term 的消息 → <strong>直接拒绝</strong>（发送者是过时的，它会因此更新自己）<br>
+    这就是 Lamport 时钟在工业系统里最重要的一个应用。<em>它的作用是让节点识别过时信息，从而自动淘汰陈旧的 leader——不需要任何全局时钟。</em></p>
+  </div>
+  <p>而 Part 1 讲过的 Lamport 时钟局限在这里也成立：term 只能告诉你"谁更新"，不能告诉你"两个 term 相同的节点谁先启动"。Raft 用另一条规则填补——<em>每个 term 每个节点只能投一票</em>，这就把"同一 term 有两个 leader"从可能性里彻底排除了（后面 §3.6 会讲清楚）。</p>
+</section>
+
+<section id="s6">
+  <h2>3.6 选举规则：全部只有四条</h2>
+  <div class="axm"><div class="b">1</div><div><strong>触发</strong>：Follower 在 <code>electionTimeout</code> 内没收到任何 leader 心跳，就认为 leader 挂了。于是把自己的 <code>currentTerm++</code>，转为 Candidate，<strong>先投自己一票</strong>，并行向所有其他节点发 <code>RequestVote</code>。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>投票方</strong>：收到 <code>RequestVote(term, candidateId, lastLogIndex, lastLogTerm)</code> 后，同意投票<em>当且仅当</em>：<br>
+    ① <code>term ≥ currentTerm</code>（不是过时的请求）；<br>
+    ② <strong>本任期内还没投过票</strong>（<code>votedFor</code> 为空或就是这个 candidate）；<br>
+    ③ candidate 的日志<strong>至少和自己一样新</strong>（比较 <code>(lastLogTerm, lastLogIndex)</code> 字典序）。<br>
+    <span style="color:var(--ink-3);font-size:13px">③ 这条是安全性的关键，3-B 会详细讲它为什么能保证已提交日志不丢。</span></div></div>
+  <div class="axm"><div class="b">3</div><div><strong>当选</strong>：拿到<strong>过半</strong>选票（含自己那票）即成为 Leader，立刻广播心跳宣示主权，防止其他节点超时发起新选举。</div></div>
+  <div class="axm"><div class="b">4</div><div><strong>让位</strong>：Candidate 期间若收到某个 leader 发来的、<code>term ≥</code> 自己的心跳，说明已经有合法 leader，立刻退回 Follower。</div></div>
+
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>选举安全性：为什么一个 term 不可能有两个 leader</div>
+    <p style="margin-bottom:0">证明只有两步：<br>
+    ① 当选需要<strong>过半</strong>选票；<br>
+    ② 每个节点在<strong>同一个 term 内最多投一票</strong>。<br>
+    如果同一个 term 有两个 leader，那么两个过半集合必然相交（Part 2 §2.5 的<em>交集性质</em>！），交集里的那个节点在同一个 term 投了两票——与 ② 矛盾。<br>
+    <strong>整个 Raft 最重要的安全性保证，就建立在"过半集合必相交"这一条上</strong>，和 Quorum 是同一个数学事实。</p>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>本节的模拟器与 Lab 3-A 代码省略了条件 ③</div>
+    <p style="margin-bottom:0">因为这一节的模型里<strong>还没有日志</strong>，所以"日志至少一样新"这条投票条件在实验 2 和 Lab 3-A 的代码里<u>没有实现</u>。<br>
+    这个简化的后果比"行为略有不同"严重：制造 3|2 分区、让少数派的任期涨上去、再恢复网络，<strong>日志陈旧的少数派节点会当选，并且会用它的旧日志覆盖别人已提交的条目</strong>——在真实 Raft 里这不可能发生。<br>
+    <strong>Part 3-B 的 Lab 3B-5 用三组对照测了这件事</strong>（各 40 次）：完整 Raft 下陈旧节点当选 0 次、安全性违反 0 次；关掉日志检查后当选 25 次、<strong>安全性违反 25 次</strong>。<br>
+    所以请把下面这个模拟器当作<em>选举流程的动画演示</em>来看——它的选主、任期递增、心跳压制、分裂投票都是真的，但<strong>分区恢复后谁能当选这一段不要当真</strong>。看完 3-B 再回来，你会明白差在哪一条。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · Raft 选举模拟器</div><div class="s">本节核心 · 真的在跑状态机和消息传递</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>网络延迟 <b id="l2d">60 ms</b></label><input type="range" id="r2d" min="10" max="400" step="10" value="60"></div>
+        <div class="f"><label>丢包率 <b id="l2l">0%</b></label><input type="range" id="r2l" min="0" max="60" step="5" value="0"></div>
+        <div class="f"><label>选举超时下限 <b id="l2t">600 ms</b></label><input type="range" id="r2t" min="200" max="1500" step="50" value="600"></div>
+        <div class="f" style="min-width:auto"><label style="visibility:hidden">a</label>
+          <label class="sw"><input type="checkbox" id="c2r" checked><span class="tr"></span>随机化选举超时</label></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b2run">运行 / 暂停</button>
+        <button id="b2kill">杀死当前 Leader</button>
+        <button id="b2part">制造 3|2 分区</button>
+        <button id="b2heal">修复分区并复活全部</button>
+        <button id="b2reset">重置</button>
+      </div>
+      <p class="hint" style="margin:0 0 10px">直接<strong>点击节点</strong>可以杀死或复活它。计时器环快走满时该节点就会发起选举。</p>
+      <div class="stage" style="padding:12px"><svg id="sv2" viewBox="0 0 720 320" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="stats" id="st2"></div>
+      <div class="log" id="lg2"></div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">1) 点「运行」，看它自己选出 leader。然后「杀死当前 Leader」，观察剩下的节点在一个选举超时之后重新选主。<br>
+        2) 点「制造 3|2 分区」：<strong>多数派那边会选出新 leader 并把 term 推高，少数派那边不断超时、term 也在涨，但永远选不出 leader</strong>。这就是 CP 的样子。<br>
+        3) 分区恢复后，注意旧 leader 一收到更高 term 就立刻退位——不需要任何人通知它。<br>
+        4) 盯住统计面板的<strong>「同一 term 的 leader 数」，它永远是 0 或 1</strong>。无论你怎么折腾网络。这就是选举安全性。<br>
+        5) 关掉「随机化选举超时」并把延迟调大，观察<strong>分裂投票</strong>：多个节点同时超时、互相抢票、谁也拿不到过半，term 一路飙升却选不出 leader。这就是下一节要解决的问题。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>3.7 分裂投票：Raft 用随机化绕过 FLP</h2>
+  <p>如果所有节点的选举超时都一样长，那么 leader 挂掉后它们会<strong>几乎同时</strong>超时、同时变成 candidate、同时给自己投票、同时向别人索票——每个人都只拿到 1 票，谁也过不了半。超时之后再来一轮，还是同时……这叫<strong>分裂投票（split vote）</strong>，理论上可以无限持续下去。</p>
+  <p>这正是 FLP 描述的活锁。Raft 的解法简单得令人意外：<strong>让每个节点的选举超时在一个区间里随机取值</strong>（论文建议 150–300ms）。于是总有一个节点先超时，它大概率能在别人醒来之前收集完选票。</p>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>这就是 §3.2 说的"用随机化绕过 FLP"</div>
+    <p style="margin-bottom:0">FLP 否定的是<strong>确定性</strong>算法。加入随机化之后，Raft 不再保证"一定在 N 步内选出 leader"，但保证<strong>以概率 1 终止</strong>——分裂投票每多持续一轮，概率就指数下降。<br>
+    <em>它没有推翻 FLP，而是换了一个 FLP 管不着的赛道。</em>工程上这就够了：连续 10 轮都撞车的概率小到可以忽略。</p>
+  </div>
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · 固定超时 vs 随机超时</div><div class="s">跑 2000 次选举，数分裂投票</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>节点数 <b id="l3n">5</b></label><input type="range" id="r3n" min="3" max="9" step="2" value="5"></div>
+        <div class="f"><label>时钟抖动（±，模拟真实机器） <b id="l3j">8 ms</b></label><input type="range" id="r3j" min="0" max="120" step="2" value="8"></div>
+        <div class="f"><label>随机区间宽度 <b id="l3w">150 ms</b></label><input type="range" id="r3w" min="0" max="400" step="10" value="150"></div>
+      </div>
+      <div class="stage" style="padding:16px"><svg id="sv3" viewBox="0 0 720 190" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="stats" id="st3"></div>
+      <div id="o3" style="margin-top:14px"></div>
+    </div>
+  </div>
+</section>
+
+<section id="s8">
+  <h2>3.8 这套机制在工业系统里长什么样</h2>
+  <p>选举这一层的实现细节，各家有各家的取舍。下面这张表值得记住，因为面试和排障都会用到：</p>
+  <table>
+    <thead><tr><th style="width:15%">系统</th><th style="width:15%">协议</th><th>选举相关的特点</th></tr></thead>
+    <tbody>
+      <tr><td><strong>etcd</strong></td><td>Raft</td><td>教科书式实现，<code>etcd/raft</code> 库被 TiKV、CockroachDB、Kubernetes 生态广泛复用。默认心跳 100ms、选举超时 1000ms。<strong>K8s 的所有状态都存在这里</strong>。</td></tr>
+      <tr><td><strong>ZooKeeper</strong></td><td>ZAB</td><td>比 Raft 早，思路相近。选举用 <em>Fast Leader Election</em>：比较 <code>(epoch, zxid, sid)</code>，日志最新者优先当选——和 Raft 的"日志至少一样新"是同一个思想。</td></tr>
+      <tr><td><strong>Kafka</strong></td><td>KRaft</td><td>3.3 起用自研 KRaft 取代 ZooKeeper 管理元数据。<em>而分区级别的 leader 选举不走共识</em>——由 controller 从 ISR 列表里直接指定，这是一个重要的架构分层。</td></tr>
+      <tr><td><strong>TiKV / CockroachDB</strong></td><td>Multi-Raft</td><td>数据切成很多 Region/Range，<strong>每个 Region 是一个独立的 Raft 组</strong>，各有各的 leader。这样写入不再受单 leader 瓶颈限制——这是把 Raft 用到大规模存储的标准做法。</td></tr>
+      <tr><td><strong>MongoDB</strong></td><td>类 Raft</td><td>副本集选举借鉴 Raft，加了 <code>priority</code> 配置可以偏好特定节点当选。</td></tr>
+      <tr><td><strong>Redis Sentinel</strong></td><td>类 Raft</td><td>Sentinel 之间用类 Raft 的方式选出一个负责故障转移的 leader。注意<em>数据复制本身是异步的，不走共识</em>——所以 Redis 主从切换<strong>会丢数据</strong>，这是常见的认知误区。</td></tr>
+    </tbody>
+  </table>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>一个高频误解：用了 Raft 不等于数据不丢</div>
+    <p style="margin-bottom:0">要看<strong>哪一层</strong>用了共识。etcd 的每一条数据写入都走 Raft，所以过半确认后就不会丢。<br>
+    Redis Sentinel 只用共识<em>选出谁来做故障转移</em>，主从数据复制仍是异步的——主库确认写入后、复制到从库前崩溃，那条写入就没了。<br>
+    Kafka 也类似：元数据走 KRaft，而消息的持久性由 <code>acks</code> + <code>min.insync.replicas</code> 决定，和共识是两回事。<br>
+    <em>看到"这个系统用了 Raft"，先问一句：Raft 管的是元数据，还是每一条业务数据？</em></p>
+  </div>
+</section>
+<section id="s9">
+  <h2>3.9 自测题</h2>
+  <p>先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. FLP 不可能性到底否定了什么？为什么 Raft 没有违反它？</summary>
+    <div class="a"><p>FLP 否定的是：在<strong>完全异步</strong>、允许<strong>一个节点崩溃</strong>的系统里，存在一个<strong>确定性</strong>算法能<strong>同时</strong>保证安全性和一定终止。</p>
+    <p style="margin-bottom:0">Raft 没违反它，因为它<strong>放弃了"一定终止"</strong>：网络持续异常时 Raft 可以永远选不出 leader（活性没了），但绝不会出现两个 leader（安全性还在）。同时它用<strong>随机化选举超时</strong>把分裂投票的活锁变成"以概率 1 终止"——随机化本身就在 FLP 的确定性假设之外。<em>FLP 不是死刑判决，是一份必须做出取舍的清单。</em></p></div></details>
+
+  <details class="q"><summary>2. 为什么 2PC 不是共识算法？两者解决的问题有什么不同？</summary>
+    <div class="a"><p><strong>2PC 要求全体一致，共识只要求过半。</strong>这一条差别导致：2PC 的可用性是所有参与者可用性的乘积（节点越多越脆弱），共识的可用性随节点增多而提升。而且 2PC 的协调者崩溃后没有内建接替机制，参与者持锁无限阻塞。</p>
+    <p style="margin-bottom:0">更根本的是它们解决的问题不同：<strong>2PC 解决"原子性"</strong>——一个事务跨多个<em>不同的</em>数据分片，要么全做要么全不做；<strong>共识解决"一致性"</strong>——<em>同一份</em>数据的多个副本保持一致。所以它们是配合关系：Spanner / TiDB 用 2PC 做跨分片提交，每个分片内部用 Raft 复制，并把协调者本身做成 Raft 组，阻塞问题就解决了。</p></div></details>
+
+  <details class="q"><summary>3. 为什么同一个 term 不可能出现两个 leader？给出完整论证。</summary>
+    <div class="a"><p>两步：① 当选需要<strong>过半</strong>选票；② 每个节点在同一个 term 内<strong>最多投一票</strong>（<code>votedFor</code> 记录且持久化）。</p>
+    <p style="margin-bottom:0">假设同一 term 有两个 leader，则存在两个过半集合。<strong>任意两个过半集合必然相交</strong>（Part 2 §2.5 的交集性质），交集里那个节点在同一 term 投了两票——与 ② 矛盾。<br>
+    <em>注意 ② 的"持久化"很关键</em>：如果 <code>votedFor</code> 只存在内存里，节点崩溃重启后会"忘记"自己投过票，就可能在同一 term 再投一次，安全性直接被打破。这是 Lab 3-C 会处理的事。</p></div></details>
+
+  <details class="q"><summary>4. 什么是分裂投票？Raft 怎么解决？为什么不能靠"把超时调短"解决？</summary>
+    <div class="a"><p>所有节点的选举超时一样长 ⇒ leader 挂掉后大家几乎同时超时、同时变 candidate、同时给自己投票 ⇒ 每人只有 1 票，谁也过不了半 ⇒ 超时后再来一轮，还是撞车。理论上可以无限持续。</p>
+    <p style="margin-bottom:0">Raft 的解法是<strong>随机化选举超时</strong>（在一个区间里随机取值），让总有人先醒来抢跑。<br>
+    <strong>调短超时不但不解决问题，还会更糟</strong>：超时越短，越容易把"网络抖动一下"误判成"leader 死了"，触发不必要的选举；而且撞车的概率并不因为超时短而降低——同时性是由"大家从同一时刻开始计时"造成的，和时长无关。<em>要打破对称性，只能引入随机。</em></p></div></details>
+
+  <details class="q"><summary>5. term 和 Part 1 学的 Lamport 时钟是什么关系？</summary>
+    <div class="a"><p><strong>term 就是一个 Lamport 逻辑时钟</strong>，规则完全对应：发起选举（本地事件）→ <code>term++</code>；收到更大 term 的消息 → <code>term = max(...)</code> 并退回 Follower；收到更小 term 的消息 → 直接拒绝。</p>
+    <p style="margin-bottom:0">它的作用是<strong>识别过时信息</strong>：一个被网络隔离的旧 leader 恢复后，一接触到集群就会看到更高的 term，自动退位——不需要任何人去"通知"它。<em>这是 Lamport 时钟在工业系统里最重要的一个应用。</em><br>
+    同样地，Lamport 时钟的局限在这里也在：term 相同的两个节点无法比较先后，所以 Raft 必须用"每 term 一票"这条额外规则来排除歧义。</p></div></details>
+
+  <details class="q"><summary>6. 网络分区成 3|2，两边各自会发生什么？分区恢复后呢？</summary>
+    <div class="a"><p><strong>多数派（3 个）</strong>：如果原 leader 在这一侧，一切照常；如果不在，超时后选出新 leader（3 个节点里 2 票即过半），term 递增，继续对外服务。</p>
+    <p><strong>少数派（2 个）</strong>：收不到心跳，不断超时、不断 <code>term++</code>、不断发起选举，但最多只能拿到 2 票，<strong>永远达不到过半（需要 3 票）</strong>。所以这一侧永远选不出 leader，无法处理任何写请求。<em>这就是 CP 的具体样子：少数派主动停止服务。</em></p>
+    <p style="margin-bottom:0"><strong>恢复后</strong>：少数派那些节点的 term 可能被自己抬得很高（比如涨到 20，而多数派只有 8）。它们一接触集群，会用高 term 逼现任 leader 退位，引发一次不必要的选举。<em>Raft 论文用 PreVote 优化解决这个问题</em>：candidate 在真正 <code>term++</code> 之前先做一轮试探性询问，确认自己能赢才正式发起——这样被隔离的节点不会污染集群的 term。</p></div></details>
+
+  <details class="q"><summary>7. 投票规则里"candidate 的日志至少和自己一样新"是干什么用的？</summary>
+    <div class="a"><p>保证<strong>已提交的日志永远不会丢失</strong>。</p>
+    <p style="margin-bottom:0">一条日志被提交，意味着它已经复制到过半节点。而当选需要过半选票，两个过半集合必然相交——所以<em>任何能当选的 candidate，一定至少有一个投票者持有全部已提交的日志</em>。如果 candidate 的日志比这个投票者旧，它就拿不到这一票，也就拿不到过半。<br>
+    比较方式是 <code>(lastLogTerm, lastLogIndex)</code> 的字典序：先比最后一条日志的 term，term 相同再比长度。<strong>注意是先比 term 而不是先比长度</strong>——一个日志更长但 term 更旧的节点，反而不算"更新"。3-B 会讲为什么必须这样。</p></div></details>
+
+  <details class="q"><summary>8. "这个系统用了 Raft，所以数据不会丢" —— 这句话错在哪？</summary>
+    <div class="a"><p>错在没问<strong>Raft 管的是哪一层</strong>。</p>
+    <ul>
+      <li><strong>etcd</strong>：每一条业务数据写入都走 Raft，过半确认后确实不会丢。</li>
+      <li><strong>Redis Sentinel</strong>：只用类 Raft 的机制<em>选出谁来做故障转移</em>，主从数据复制仍然是异步的。主库确认写入后、复制到从库前崩溃，那条写入就丢了。</li>
+      <li><strong>Kafka</strong>：3.3 起用 KRaft 管<em>元数据</em>，而消息的持久性由 <code>acks=all</code> + <code>min.insync.replicas</code> 决定，和 KRaft 无关。</li>
+    </ul>
+    <p style="margin-bottom:0"><em>看到"用了 Raft"，先问：管的是元数据还是每一条业务数据？</em></p></div></details>
+
+  <details class="q"><summary>9. TiKV 和 CockroachDB 的 Multi-Raft 解决了什么问题？</summary>
+    <div class="a"><p>解决<strong>单 Raft 组的 leader 写入瓶颈</strong>。</p>
+    <p style="margin-bottom:0">标准 Raft 是强 leader：所有写入都经过一个节点，吞吐上限就是那台机器。Multi-Raft 把数据按 key 范围切成很多 Region/Range，<strong>每个 Region 是一个独立的 Raft 组，各有各的 leader，leader 分散在集群各处</strong>。写入按 key 路由到对应 Region 的 leader，整体吞吐随 Region 数量线性扩展。<br>
+    代价是复杂度：需要管理 Region 的分裂/合并、leader 的负载均衡调度、以及跨 Region 事务（那就要回到 2PC，Part 4 的内容）。</p></div></details>
+
+  <details class="q"><summary>10. 【综合】5 节点 Raft 集群，网络抖动导致某个 follower 频繁短暂失联。它的 term 会怎么变？会对集群造成什么影响？怎么缓解？</summary>
+    <div class="a">
+    <p><strong>会发生什么</strong>：每次失联超过选举超时，它就 <code>term++</code> 发起选举。反复几次后，它的 term 会显著高于集群其他节点。等它恢复连接，那个高 term 会通过 RequestVote 传播出去——<strong>现任 leader 一看到更高 term 就退位</strong>，集群被迫重新选举。</p>
+    <p>后果：<em>一个有问题的 follower 反复打断整个集群的服务</em>。选举期间无法处理写请求，客户端看到几百毫秒的抖动，严重时形成"选举风暴"。</p>
+    <p><strong>缓解手段</strong>，按有效性排序：</p>
+    <ol>
+      <li><strong>PreVote</strong>：candidate 在真正 <code>term++</code> 之前，先发一轮试探性的 PreVote 询问"如果我发起选举，你们会投我吗"。被隔离的节点得不到过半肯定答复，就不会抬高自己的 term。<em>这是标准解法，etcd 默认开启。</em></li>
+      <li><strong>Leader Lease / CheckQuorum</strong>：leader 只要还能收到过半节点的心跳响应，就认为自己合法；follower 在租约期内拒绝给别人投票，即使对方 term 更高。</li>
+      <li>适当调大选举超时，减少误判——但这会拖慢真实故障的恢复速度，是个权衡。</li>
+      <li>最根本的：修网络。反复抖动的链路是真正的病根，上面三条都只是止血。</li>
+    </ol>
+    <p style="margin-bottom:0">如果你能想到 PreVote，说明这一节的机制已经内化了——它正是"高 term 自动逼退 leader"这条规则的副作用的对策。</p></div></details>
+</section>
+
+<section id="s10">
+  <h2>Lab 3-A · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/</code>。这一个 Lab 是整条路线的分水岭的第一段：<strong>你会写出一个真的能选主的 Raft</strong>。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>3A-1</strong><br>确定性网络模拟</td><td>一个可注入延迟、丢包、分区的消息网络，<strong>同一个种子结果完全可复现</strong>——这是调试共识算法的前提，比 print 有用一百倍。</td></tr>
+      <tr><td><strong>3A-2</strong><br>选举状态机</td><td>Follower / Candidate / Leader 三态转换、term 递增、RequestVote 与心跳。<strong>核心逻辑不到 150 行。</strong></td></tr>
+      <tr><td><strong>3A-3</strong><br>五个场景 + 安全性断言</td><td>正常选主 / 杀 leader 重选 / 3|2 分区 / 分区恢复 / 反复杀节点。每个 tick 都断言<strong>「任一 term 至多一个 leader」</strong>，违反直接 panic。</td></tr>
+      <tr><td><strong>3A-4</strong><br>随机化对照</td><td>关掉随机超时跑一遍，统计分裂投票次数与选主耗时，和开启时对照。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab03a &amp;&amp; go run .
+
+<span class="cm"># Java</span>
+cd ~/Code/distributed-systems-course/java/lab03a &amp;&amp; java Lab03A.java
+
+<span class="cm"># 调参：把丢包率拉高，看选举还能不能收敛</span>
+go run . -loss 0.3 -delay 80 -norandom
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完后回答</div>
+    <p style="margin-bottom:0">把 <code>-loss</code> 调到 0.5，集群还能选出 leader 吗？需要多久？<br>
+    再想一个更难的：<strong>如果把"每个 term 只投一票"这条规则去掉</strong>，安全性断言会在第几个场景炸掉？<em>先猜，再改代码试。</em>（提示：代码里留了一个 <code>-unsafe</code> 开关，专门用来炸给你看。）</p>
+  </div>
+
+  <h3>下一节预告</h3>
+  <p><strong>Part 3-B · 日志复制与安全性。</strong>选出 leader 只是开始。真正难的是：leader 怎么把日志复制给所有人？follower 的日志和 leader 冲突了怎么办？什么时候一条日志才算"已提交"？以及最烧脑的部分——<strong>Raft 的五条安全性属性</strong>，特别是那条反直觉的"leader 不能通过计数副本数来提交前任任期的日志"（论文 Figure 8）。我们会把那张图逐格走一遍，然后你在 Lab 3-B 里把日志复制加上去。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const NS="http://www.w3.org/2000/svg";
+function el(t,a,x){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}
+function cv(n){return getComputedStyle(document.body).getPropertyValue(n).trim();}
+
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");draw1();draw3();};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 1 · 2PC 阻塞复现
+   ══════════════════════════════════════════════════════════════════ */
+const P2=["P1","P2","P3"];
+const SC1=[
+ {n:"正常提交",steps:[
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:null,note:"事务开始，协调者准备发起两阶段提交。"},
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:{d:"down",t:"prepare?",all:true},note:"<strong>阶段一</strong>：协调者向所有参与者发出 prepare，询问能否提交。"},
+   {c:"运行中",p:["已准备 · 持锁","已准备 · 持锁","已准备 · 持锁"],msg:{d:"up",t:"yes",all:true},
+    note:"三个参与者都完成了工作、写好 redo/undo 日志、<strong>持有行锁</strong>，回答 yes。<br><em>回答 yes 之后，它们就失去了单方面中止的权利。</em>"},
+   {c:"运行中",p:["已准备 · 持锁","已准备 · 持锁","已准备 · 持锁"],msg:{d:"down",t:"commit",all:true},
+    note:"<strong>阶段二</strong>：协调者收齐全部 yes，广播 commit。"},
+   {c:"完成",p:["已提交 · 锁已释放","已提交 · 锁已释放","已提交 · 锁已释放"],msg:null,ok:true,
+    note:"全部提交成功，锁释放。<strong>这是一切顺利时的样子——注意它需要每一个参与者都活着且可达。</strong>"}]},
+ {n:"有人投 no",steps:[
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:null,note:"事务开始。"},
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:{d:"down",t:"prepare?",all:true},note:"<strong>阶段一</strong>：发出 prepare。"},
+   {c:"运行中",p:["已准备 · 持锁","拒绝 · 已回滚","已准备 · 持锁"],msg:{d:"up",t:"P2 回 no",all:true},
+    note:"P2 因为约束冲突回答 no（它可以自行回滚）。P1、P3 已经进入 prepared 状态并持锁。"},
+   {c:"运行中",p:["已准备 · 持锁","已回滚","已准备 · 持锁"],msg:{d:"down",t:"abort",all:true},
+    note:"只要有一票 no，协调者就必须广播 abort。<strong>2PC 要求全体一致——这是它和共识最大的区别。</strong>"},
+   {c:"完成",p:["已回滚 · 锁已释放","已回滚","已回滚 · 锁已释放"],msg:null,ok:true,
+    note:"全部回滚。安全，但注意：<em>一个参与者的一次拒绝，就让整个事务作废。</em>"}]},
+ {n:"收齐 yes 后杀协调者",steps:[
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:null,note:"事务开始。"},
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:{d:"down",t:"prepare?",all:true},note:"<strong>阶段一</strong>：发出 prepare。"},
+   {c:"运行中",p:["已准备 · 持锁","已准备 · 持锁","已准备 · 持锁"],msg:{d:"up",t:"yes",all:true},
+    note:"三个参与者全部回答 yes，进入 prepared 状态，<strong>持锁等待最终指令</strong>。"},
+   {c:"崩溃",p:["已准备 · 持锁","已准备 · 持锁","已准备 · 持锁"],msg:null,dead:true,
+    note:"<strong>协调者在发出 commit 之前崩溃了。</strong>它已经知道答案是 commit，但这个决定还没告诉任何人，而且它只存在于协调者的日志里。"},
+   {c:"崩溃",p:["阻塞中 · 锁未释放","阻塞中 · 锁未释放","阻塞中 · 锁未释放"],msg:null,blocked:true,
+    note:"<strong>三个参与者全部永久阻塞。</strong>它们不能提交（不知道协调者的决定），也不能回滚（万一决定是 commit，回滚就破坏了原子性）。<br>它们持有的行锁会把所有访问这些行的事务全部堵死，直到协调者恢复为止。"}]},
+ {n:"commit 只发一半",steps:[
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:null,note:"事务开始。"},
+   {c:"运行中",p:["空闲","空闲","空闲"],msg:{d:"down",t:"prepare?",all:true},note:"<strong>阶段一</strong>：发出 prepare。"},
+   {c:"运行中",p:["已准备 · 持锁","已准备 · 持锁","已准备 · 持锁"],msg:{d:"up",t:"yes",all:true},note:"全部回答 yes。"},
+   {c:"崩溃",p:["已提交 · 锁已释放","已准备 · 持锁","已准备 · 持锁"],msg:{d:"down",t:"commit",only:0},dead:true,
+    note:"协调者把 commit 发给了 P1，<strong>然后立刻崩溃</strong>，P2 和 P3 什么都没收到。"},
+   {c:"崩溃",p:["已提交 · 锁已释放","阻塞中 · 锁未释放","阻塞中 · 锁未释放"],msg:null,blocked:true,worst:true,
+    note:"<strong>最坏的情况：状态已经分歧，而且无法自行修复。</strong><br>P2、P3 就算互相通信也没用——它们只知道「我俩都投了 yes、都没收到指令」，这和「协调者决定 abort」的情形<em>完全无法区分</em>。<br>它们不敢 abort（P1 可能已经提交了），也不敢 commit（协调者可能决定了 abort）。<strong>只能等。</strong>"}]}
+];
+let sc1=0, st1=0, timer1=null;
+function draw1(){
+  const S=SC1[sc1].steps[st1], svg=$("#sv1"); svg.innerHTML="";
+  const CX=360, CY=42, PX=[130,360,590], PY=178;
+  const defs=el("defs",{});
+  const m=el("marker",{id:"ar1",viewBox:"0 0 10 10",refX:9,refY:5,markerWidth:5,markerHeight:5,orient:"auto"});
+  m.appendChild(el("path",{d:"M0,0 L10,5 L0,10 z",fill:cv("--s4")})); defs.appendChild(m); svg.appendChild(defs);
+  // 消息箭头
+  if(S.msg){
+    PX.forEach((x,i)=>{
+      if(S.msg.only!==undefined && S.msg.only!==i) return;
+      const y1=S.msg.d==="down"?CY+26:PY-24, y2=S.msg.d==="down"?PY-26:CY+24;
+      svg.appendChild(el("line",{x1:S.msg.d==="down"?CX:x,y1:y1,x2:S.msg.d==="down"?x:CX,y2:y2,
+        stroke:cv("--s4"),"stroke-width":2,"marker-end":"url(#ar1)",opacity:.9}));
+    });
+    svg.appendChild(el("text",{x:CX,y:112,fill:cv("--s4"),"font-size":12,"font-weight":650,"text-anchor":"middle",
+      "font-family":cv("--mono")},S.msg.t));
+  }
+  // 协调者
+  const dead=S.dead;
+  svg.appendChild(el("rect",{x:CX-72,y:CY-22,width:144,height:46,rx:9,fill:cv("--surface"),
+    stroke:dead?cv("--crit"):cv("--s1"),"stroke-width":2}));
+  svg.appendChild(el("text",{x:CX,y:CY-2,fill:cv("--ink"),"font-size":13,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},
+    (dead?"☠ ":"")+"协调者"));
+  svg.appendChild(el("text",{x:CX,y:CY+15,fill:dead?cv("--crit"):cv("--ink-3"),"font-size":11,"text-anchor":"middle","font-family":cv("--sans")},S.c));
+  // 参与者
+  PX.forEach((x,i)=>{
+    const st=S.p[i];
+    const col = st.startsWith("阻塞")?"--crit" : st.startsWith("已提交")?"--ok" : st.startsWith("已准备")?"--warn"
+              : st.startsWith("已回滚")||st.startsWith("拒绝")?"--s2" : "--ink-3";
+    svg.appendChild(el("rect",{x:x-76,y:PY-24,width:152,height:48,rx:9,fill:cv("--surface"),stroke:cv(col),"stroke-width":2}));
+    svg.appendChild(el("text",{x:x,y:PY-4,fill:cv("--ink"),"font-size":13,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},P2[i]));
+    svg.appendChild(el("text",{x:x,y:PY+14,fill:cv(col),"font-size":10.5,"font-weight":600,"text-anchor":"middle","font-family":cv("--sans")},st));
+    if(st.startsWith("阻塞")){
+      svg.appendChild(el("text",{x:x,y:PY+40,fill:cv("--crit"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},"⏳ 无限等待中"));
+    }
+  });
+  svg.appendChild(el("text",{x:14,y:222,fill:cv("--ink-3"),"font-size":10.5,"font-family":cv("--sans")},
+    "步骤 "+(st1+1)+" / "+SC1[sc1].steps.length));
+  const cls=S.worst?"crit":S.blocked?"crit":S.ok?"ok":"";
+  $("#o1").innerHTML='<div class="note '+cls+'" style="margin:0">'+
+    (cls?'<div class="note-h"><span class="dot" style="background:'+(S.ok?cv("--ok"):cv("--crit"))+'"></span>'+
+      (S.ok?"事务完成":S.worst?"状态分歧 + 永久阻塞":"永久阻塞")+'</div>':'')+
+    '<p style="margin-bottom:0">'+S.note+'</p>'+
+    (S.blocked?'<p style="margin:10px 0 0;font-size:13.5px;color:var(--ink-3)">对比一下：如果这是 Raft，leader 崩溃后剩下的节点在一个选举超时之内就会选出新 leader 并接着推进——'+
+      '<strong>因为共识只要求过半，而且内建了接替机制</strong>。这正是 §3.3 那张对照表想说的。</p>':'')+'</div>';
+}
+function step1(){ if(st1<SC1[sc1].steps.length-1){st1++;draw1();} else {clearInterval(timer1);timer1=null;$("#b1auto").textContent="自动播放";} }
+$("#b1step").onclick=step1;
+$("#b1auto").onclick=e=>{ if(timer1){clearInterval(timer1);timer1=null;e.target.textContent="自动播放";}
+  else{ if(st1>=SC1[sc1].steps.length-1) st1=0; e.target.textContent="暂停"; timer1=setInterval(step1,1400); draw1(); } };
+$("#b1reset").onclick=()=>{st1=0;clearInterval(timer1);timer1=null;$("#b1auto").textContent="自动播放";draw1();};
+$$("#sc1 button").forEach(b=>b.onclick=()=>{$$("#sc1 button").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act"); sc1=+b.dataset.s; st1=0; clearInterval(timer1); timer1=null; $("#b1auto").textContent="自动播放"; draw1();});
+draw1();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 2 · Raft 选举模拟器（真的在跑状态机 + 消息传递）
+   ══════════════════════════════════════════════════════════════════ */
+const NN=5, MAJ=Math.floor(NN/2)+1, HB=150;
+const R={nodes:[],msgs:[],run:false,last:0,part:false,
+  elections:0,splits:0,maxLeadersPerTerm:1,violated:false,log:[]};
+const P2X=[], P2Y=[];
+(function layout(){
+  const cx=360, cy=150, rad=112;
+  for(let i=0;i<NN;i++){ const a=-Math.PI/2+i*2*Math.PI/NN;
+    P2X.push(cx+rad*Math.cos(a)); P2Y.push(cy+rad*Math.sin(a)); }
+})();
+function cfg2(){return {delay:+$("#r2d").value, loss:+$("#r2l").value/100,
+  base:+$("#r2t").value, rand:$("#c2r").checked};}
+function rto(){ const c=cfg2(); return c.base + (c.rand? Math.random()*400 : 0); }
+function log2(m,col){ R.log.push({m,col}); if(R.log.length>200) R.log.shift(); }
+function reset2(){
+  R.nodes=[]; R.msgs=[]; R.part=false; R.elections=0; R.splits=0;
+  R.maxLeadersPerTerm=1; R.violated=false; R.log=[];
+  for(let i=0;i<NN;i++) R.nodes.push({id:i,alive:true,state:"F",term:0,votedFor:null,
+    votes:new Set(),timer:0,timeout:rto(),hb:0,grp:i<3?0:1});
+  log2("集群启动，5 个节点全部是 Follower");
+}
+function send(from,to,type,payload){
+  const c=cfg2();
+  if(R.part && R.nodes[from].grp!==R.nodes[to].grp) return;   // 分区：跨组消息直接丢弃
+  const lost=Math.random()<c.loss;
+  R.msgs.push({from,to,type,...payload,t:0,dur:c.delay*(0.7+Math.random()*0.6),lost,
+    lossAt:0.3+Math.random()*0.4});
+}
+function stepDown(n,term){ n.term=term; n.state="F"; n.votedFor=null; n.votes.clear(); n.timer=0; n.timeout=rto(); }
+function startElection(n){
+  n.term++; n.state="C"; n.votedFor=n.id; n.votes=new Set([n.id]);
+  n.timer=0; n.timeout=rto(); R.elections++;
+  log2("N"+(n.id+1)+" 选举超时 → 成为 Candidate，term="+n.term,"--warn");
+  for(let j=0;j<NN;j++) if(j!==n.id) send(n.id,j,"RV",{term:n.term});
+}
+function becomeLeader(n){
+  n.state="L"; n.hb=1e9;
+  log2("★ N"+(n.id+1)+" 当选 Leader（term="+n.term+"，得票 "+n.votes.size+"/"+NN+"）","--ok");
+}
+function deliver(m){
+  const to=R.nodes[m.to], from=R.nodes[m.from];
+  if(!to.alive) return;
+  if(m.type==="RV"){
+    if(m.term>to.term) stepDown(to,m.term);
+    const grant = m.term===to.term && (to.votedFor===null||to.votedFor===m.from) && to.state!=="L";
+    if(grant){ to.votedFor=m.from; to.timer=0; to.timeout=rto(); }
+    send(m.to,m.from,"RVR",{term:to.term,granted:grant});
+  } else if(m.type==="RVR"){
+    if(m.term>to.term){ stepDown(to,m.term); return; }
+    if(to.state==="C" && m.granted && m.term===to.term){
+      to.votes.add(m.from);
+      if(to.votes.size>=MAJ) becomeLeader(to);
+    }
+  } else if(m.type==="AE"){          // 心跳
+    if(m.term>=to.term){
+      const wasL = to.state==="L";
+      to.term=m.term; to.state="F"; to.votedFor=m.from; to.timer=0; to.timeout=rto(); to.votes.clear();
+      if(wasL) log2("N"+(to.id+1)+" 看到 term="+m.term+" 的 Leader，立刻退位","--crit");
+    }
+  }
+}
+function tick2(dt){
+  // 选举计时器
+  for(const n of R.nodes){
+    if(!n.alive) continue;
+    if(n.state==="L"){
+      n.hb+=dt;
+      if(n.hb>=HB){ n.hb=0; for(let j=0;j<NN;j++) if(j!==n.id) send(n.id,j,"AE",{term:n.term}); }
+    } else {
+      n.timer+=dt;
+      if(n.timer>=n.timeout){
+        if(n.state==="C"){ R.splits++; log2("N"+(n.id+1)+" 选举超时仍未过半 → 分裂投票，重新发起","--crit"); }
+        startElection(n);
+      }
+    }
+  }
+  // 消息飞行
+  for(let i=R.msgs.length-1;i>=0;i--){
+    const m=R.msgs[i]; m.t+=dt;
+    const pr=m.t/m.dur;
+    if(m.lost&&pr>=m.lossAt){ R.msgs.splice(i,1); continue; }
+    if(pr>=1){ R.msgs.splice(i,1); deliver(m); }
+  }
+  // 安全性断言：同一 term 至多一个 leader
+  const byTerm={};
+  for(const n of R.nodes) if(n.alive&&n.state==="L") byTerm[n.term]=(byTerm[n.term]||0)+1;
+  for(const t in byTerm){
+    if(byTerm[t]>R.maxLeadersPerTerm) R.maxLeadersPerTerm=byTerm[t];
+    if(byTerm[t]>1&&!R.violated){ R.violated=true; log2("⚠ 安全性被破坏：term "+t+" 出现了 "+byTerm[t]+" 个 Leader！","--crit"); }
+  }
+}
+function draw2(){
+  const svg=$("#sv2"); svg.innerHTML="";
+  // 分区线
+  if(R.part){
+    const mx1=(P2X[4]+P2X[0])/2, my1=(P2Y[4]+P2Y[0])/2, mx2=(P2X[2]+P2X[3])/2, my2=(P2Y[2]+P2Y[3])/2;
+    const dx=mx2-mx1, dy=my2-my1, L=Math.hypot(dx,dy), ex=dx/L*180, ey=dy/L*180;
+    svg.appendChild(el("line",{x1:mx1-ex*0.6,y1:my1-ey*0.6,x2:mx2+ex*0.6,y2:my2+ey*0.6,
+      stroke:cv("--crit"),"stroke-width":2.5,"stroke-dasharray":"8 6"}));
+    svg.appendChild(el("text",{x:mx1-ex*0.6-6,y:my1-ey*0.6-8,fill:cv("--crit"),"font-size":11,
+      "text-anchor":"middle","font-family":cv("--sans")},"网络分区"));
+  }
+  // 连线
+  for(let i=0;i<NN;i++) for(let j=i+1;j<NN;j++){
+    const cut = R.part && R.nodes[i].grp!==R.nodes[j].grp;
+    if(cut) continue;
+    svg.appendChild(el("line",{x1:P2X[i],y1:P2Y[i],x2:P2X[j],y2:P2Y[j],
+      stroke:cv("--grid"),"stroke-width":1,opacity:.5}));
+  }
+  // 消息
+  R.msgs.forEach(m=>{
+    const pr=Math.min(m.t/m.dur,1);
+    const x=P2X[m.from]+(P2X[m.to]-P2X[m.from])*pr, y=P2Y[m.from]+(P2Y[m.to]-P2Y[m.from])*pr;
+    const dying=m.lost&&pr>m.lossAt-0.1;
+    const col = dying?"--serious" : m.type==="AE"?"--s3" : m.type==="RV"?"--s1":"--s4";
+    svg.appendChild(el("circle",{cx:x,cy:y,r:dying?6:4.5,fill:cv(col),opacity:dying?.6:1}));
+  });
+  // 节点
+  const ROLE={F:["Follower","--s1"],C:["Candidate","--warn"],L:["Leader","--ok"]};
+  R.nodes.forEach((n,i)=>{
+    const x=P2X[i], y=P2Y[i];
+    const col = n.alive? cv(ROLE[n.state][1]) : cv("--crit");
+    if(n.alive&&n.state!=="L"){    // 计时器环
+      const p=Math.min(n.timer/n.timeout,1), a=-Math.PI/2+p*2*Math.PI;
+      const lg=p>0.5?1:0;
+      svg.appendChild(el("path",{d:"M "+x+" "+(y-30)+" A 30 30 0 "+lg+" 1 "+(x+30*Math.cos(a))+" "+(y+30*Math.sin(a)),
+        fill:"none",stroke:cv(p>0.8?"--warn":"--ink-3"),"stroke-width":3,opacity:.85}));
+    }
+    svg.appendChild(el("circle",{cx:x,cy:y,r:24,fill:cv("--surface"),stroke:col,"stroke-width":n.state==="L"?3:2,
+      style:"cursor:pointer",class:"nd","data-i":i}));
+    svg.appendChild(el("text",{x:x,y:y-2,fill:n.alive?cv("--ink"):cv("--crit"),"font-size":12,"font-weight":700,
+      "text-anchor":"middle","font-family":cv("--sans"),style:"pointer-events:none"},n.alive?"N"+(i+1):"☠"));
+    svg.appendChild(el("text",{x:x,y:y+12,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle",
+      "font-family":cv("--mono"),style:"pointer-events:none"},"t"+n.term));
+    if(n.alive) svg.appendChild(el("text",{x:x,y:y+45,fill:col,"font-size":10.5,"font-weight":650,
+      "text-anchor":"middle","font-family":cv("--sans"),style:"pointer-events:none"},ROLE[n.state][0]));
+    if(n.state==="C"&&n.alive) svg.appendChild(el("text",{x:x,y:y+58,fill:cv("--ink-3"),"font-size":9.5,
+      "text-anchor":"middle","font-family":cv("--sans"),style:"pointer-events:none"},"得票 "+n.votes.size+"/"+MAJ));
+  });
+  svg.appendChild(el("text",{x:14,y:312,fill:cv("--ink-3"),"font-size":10.5,"font-family":cv("--sans")},
+    "蓝点 = RequestVote　金点 = 投票回复　绿点 = 心跳　节点外环 = 选举计时器进度"));
+  // 统计
+  const leader=R.nodes.find(n=>n.alive&&n.state==="L");
+  const maxTerm=Math.max(...R.nodes.map(n=>n.term));
+  $("#st2").innerHTML=
+    '<div class="stat"><div class="k">当前 Leader</div><div class="v" style="color:'+(leader?cv("--ok"):cv("--crit"))+'">'+
+      (leader?"N"+(leader.id+1):"无")+'</div><div class="u">'+(leader?"term "+leader.term:"选举中")+'</div></div>'+
+    '<div class="stat"><div class="k">最大 term</div><div class="v">'+maxTerm+'</div><div class="u">逻辑时钟</div></div>'+
+    '<div class="stat"><div class="k">发起过的选举</div><div class="v">'+R.elections+'</div><div class="u">次</div></div>'+
+    '<div class="stat"><div class="k">分裂投票</div><div class="v" style="color:'+(R.splits?cv("--warn"):cv("--ink"))+'">'+R.splits+'</div><div class="u">次</div></div>'+
+    '<div class="stat"><div class="k">同一 term 的 Leader 数</div><div class="v" style="color:'+(R.violated?cv("--crit"):cv("--ok"))+'">'+
+      R.maxLeadersPerTerm+'</div><div class="u">'+(R.violated?"⚠ 安全性被破坏":"✓ 选举安全性成立")+'</div></div>';
+  const lg=$("#lg2");
+  lg.innerHTML=R.log.slice(-40).map(x=>'<div'+(x.col?' style="color:'+cv(x.col)+'"':'')+'>'+x.m+'</div>').join("");
+  lg.scrollTop=lg.scrollHeight;
+}
+function frame2(ts){
+  if(R.run){ const dt=Math.min(ts-R.last,60); tick2(dt); }
+  R.last=ts; draw2(); requestAnimationFrame(frame2);
+}
+$("#sv2").addEventListener("click",e=>{
+  const t=e.target; if(!t.classList||!t.classList.contains("nd")) return;
+  const n=R.nodes[+t.dataset.i]; n.alive=!n.alive;
+  if(!n.alive){ n.state="F"; n.votes.clear(); log2("N"+(n.id+1)+" 被杀死","--crit"); }
+  else { n.timer=0; n.timeout=rto(); log2("N"+(n.id+1)+" 复活"); }
+});
+["r2d","r2l","r2t"].forEach(id=>{const u={r2d:["l2d"," ms"],r2l:["l2l","%"],r2t:["l2t"," ms"]}[id];
+  const f=()=>$("#"+u[0]).textContent=$("#"+id).value+u[1]; $("#"+id).oninput=f; f();});
+$("#b2run").onclick=e=>{R.run=!R.run;e.target.textContent=R.run?"暂停":"运行 / 暂停";};
+$("#b2kill").onclick=()=>{const l=R.nodes.find(n=>n.alive&&n.state==="L");
+  if(l){l.alive=false;l.state="F";l.votes.clear();log2("N"+(l.id+1)+"（Leader）被杀死","--crit");}
+  else log2("当前没有 Leader");};
+$("#b2part").onclick=()=>{R.part=true;log2("网络分区：{N1,N2,N3} | {N4,N5}　少数派将永远选不出 Leader","--crit");};
+$("#b2heal").onclick=()=>{R.part=false;R.nodes.forEach(n=>{if(!n.alive){n.alive=true;n.timer=0;n.timeout=rto();}});
+  log2("分区修复，全部节点复活","--ok");};
+$("#b2reset").onclick=()=>{reset2();};
+reset2(); requestAnimationFrame(frame2);
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 3 · 固定超时 vs 随机超时
+   ══════════════════════════════════════════════════════════════════ */
+function simElections(n, jitter, window_, trials){
+  const BASE=600, MSG=30;   // 一次 RequestVote 单向飞行时间
+  let totalRounds=0, totalTime=0, splitRounds=0;
+  for(let t=0;t<trials;t++){
+    let elapsed=0, rounds=0;
+    for(;;){
+      rounds++;
+      const to=[];
+      for(let i=0;i<n;i++) to.push(BASE + (Math.random()*2-1)*jitter + Math.random()*window_);
+      to.sort((a,b)=>a-b);
+      // 在最早者发出 RequestVote 送达之前也醒来的节点，都会给自己投票
+      let cands=1;
+      for(let i=1;i<n;i++) if(to[i] < to[0]+MSG) cands++;
+      const votesForFirst = 1 + (n - cands);       // 自己 + 所有还没醒的节点
+      elapsed += to[0] + MSG*2;
+      if(votesForFirst >= Math.floor(n/2)+1){ totalRounds+=rounds; totalTime+=elapsed; break; }
+      splitRounds++;
+      if(rounds>60){ totalRounds+=rounds; totalTime+=elapsed; break; }
+    }
+  }
+  return {rounds:totalRounds/trials, time:totalTime/trials, splitRate:splitRounds/(totalRounds)};
+}
+function draw3(){
+  const n=+$("#r3n").value, j=+$("#r3j").value, w=+$("#r3w").value;
+  $("#l3n").textContent=n; $("#l3j").textContent=j+" ms"; $("#l3w").textContent=w+" ms";
+  const fixed=simElections(n,j,0,2000), rand=simElections(n,j,w,2000);
+  const svg=$("#sv3"); svg.innerHTML="";
+  const L=150,Rr=660,TOP=34,BH=30,GAP=44;
+  const mx=Math.max(fixed.time,rand.time,1);
+  [["固定超时（区间宽度 0）",fixed,"--crit"],["随机超时（宽度 "+w+"ms）",rand,"--ok"]].forEach((row,i)=>{
+    const y=TOP+i*(BH+GAP), wpx=Math.max((row[1].time/mx)*(Rr-L),4);
+    svg.appendChild(el("text",{x:L-12,y:y+BH/2+4,fill:cv("--ink-2"),"font-size":11.5,"text-anchor":"end","font-family":cv("--sans")},row[0]));
+    svg.appendChild(el("rect",{x:L,y:y,width:wpx,height:BH,rx:4,fill:cv(row[2])}));
+    svg.appendChild(el("text",{x:L+wpx+10,y:y+BH/2+4,fill:cv("--ink"),"font-size":11.5,"font-family":cv("--sans")},
+      Math.round(row[1].time)+" ms　·　平均 "+(row[1].rounds>=60?"60+ 轮（不收敛）":row[1].rounds.toFixed(2)+" 轮")));
+    svg.appendChild(el("text",{x:L,y:y+BH+16,fill:cv("--ink-3"),"font-size":10.5,"font-family":cv("--sans")},
+      "分裂投票占比 "+(row[1].splitRate*100).toFixed(1)+"%"));
+  });
+  svg.appendChild(el("text",{x:Rr,y:TOP+2*(BH+GAP)+6,fill:cv("--ink-3"),"font-size":10.5,"text-anchor":"end","font-family":cv("--sans")},
+    "选出 Leader 的平均耗时（越短越好）· 每组 2000 次模拟 · 单次 RequestVote 飞行时间取 30ms"));
+  $("#st3").innerHTML=
+    '<div class="stat"><div class="k">固定超时 · 平均轮数</div><div class="v" style="color:var(--crit)">'+(fixed.rounds>=60?"60+":fixed.rounds.toFixed(2))+'</div><div class="u">'+(fixed.rounds>=60?"未能收敛":"轮才选出 Leader")+'</div></div>'+
+    '<div class="stat"><div class="k">随机超时 · 平均轮数</div><div class="v" style="color:var(--ok)">'+rand.rounds.toFixed(2)+'</div><div class="u">轮才选出 Leader</div></div>'+
+    '<div class="stat"><div class="k">耗时改善</div><div class="v">'+(fixed.time/Math.max(rand.time,1)).toFixed(1)+'×</div><div class="u">随机化带来的加速</div></div>'+
+    '<div class="stat"><div class="k">固定超时分裂率</div><div class="v" style="color:var(--crit)">'+(fixed.splitRate*100).toFixed(0)+'%</div><div class="u">的选举轮次是白跑的</div></div>';
+  let msg;
+  if(w===0) msg='把「随机区间宽度」拖到 0 时两组完全相同 —— 现在把它拉大，看差距怎么出现。';
+  else if(j<30) msg='时钟抖动是 ±'+j+'ms，<strong>小于一次 RequestVote 的飞行时间（30ms）</strong>，'+
+    '所以在固定超时下所有节点实际上是"同时"醒来的：每人都先给自己投票，谁也凑不齐过半 —— '+
+    '分裂投票率 100%，选举永远不收敛。<strong>这就是活锁。</strong><br>'+
+    '把「时钟抖动」拖到 30ms 以上再看看会发生什么。';
+  else msg='现在时钟抖动（±'+j+'ms）已经超过了消息飞行时间，<strong>固定超时也能偶然打破对称性了</strong> —— '+
+    '总有节点醒得足够早，赶在别人之前把票收齐。<br>'+
+    '但这是在赌运气：真实机器的时钟抖动通常远小于网络 RTT（几毫秒 vs 几十毫秒），'+
+    '所以真实集群落在上一档。<strong>随机化的作用是把"偶然"变成"设计"</strong> —— '+
+    '它主动制造一个远大于 RTT 的时间差，而不是指望硬件恰好帮你。';
+  $("#o3").innerHTML='<div class="note '+(w===0?"warn":"ok")+'" style="margin:0"><div class="note-h">'+
+    '<span class="dot" style="background:'+(w===0?cv("--warn"):cv("--ok"))+'"></span>怎么读这两条</div>'+
+    '<p style="margin-bottom:0">'+msg+'<br><br>'+
+    '注意这不是"随机化让选举更快"，而是<strong>随机化让选举能够终止</strong>。'+
+    'FLP 说确定性算法在异步系统里不能保证终止；Raft 加了一个随机数，就换到了一条 FLP 管不着的赛道上 —— '+
+    '代价是它只保证"以概率 1 终止"，而不是"N 步内一定终止"。工程上这就够了。</p></div>';
+}
+["r3n","r3j","r3w"].forEach(i=>$("#"+i).oninput=draw3);
+draw3();
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分布式系统 · Part 2 · 复制与一致性模型</title>
+<style>
+/* ========== 设计令牌 ========== */
+:root{
+  --plane:#0d0d0d;      --surface:#1a1a19;   --surface-2:#212120;
+  --ink:#ffffff;        --ink-2:#c3c2b7;     --ink-3:#898781;
+  --grid:#2c2c2a;       --axis:#383835;      --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;         --s2:#d95926;        --s3:#199e70;
+  --s4:#c98500;         --s7:#9085e9;
+  --ok:#0ca30c;         --warn:#fab219;      --serious:#ec835a;  --crit:#d03b3b;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+html[data-theme="light"]{
+  --plane:#f9f9f7;      --surface:#fcfcfb;   --surface-2:#f2f1ed;
+  --ink:#0b0b0b;        --ink-2:#52514e;     --ink-3:#898781;
+  --grid:#e1e0d9;       --axis:#c3c2b7;      --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;         --s2:#eb6834;        --s3:#1baf7a;
+  --s4:#eda100;         --s7:#4a3aa7;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+/* ========== 布局 ========== */
+.progress{position:fixed;top:0;left:0;height:2px;background:var(--s1);z-index:100;width:0;transition:width .1s linear}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:40px;max-width:1240px;margin:0 auto;padding:0 28px}
+aside{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:28px 0 40px;
+  scrollbar-width:thin;scrollbar-color:var(--axis) transparent}
+aside::-webkit-scrollbar{width:6px}
+aside::-webkit-scrollbar-thumb{background:var(--axis);border-radius:3px}
+.toc-brand{font-size:12px;letter-spacing:.14em;color:var(--ink-3);text-transform:uppercase;margin-bottom:14px}
+.toc a{display:block;padding:5px 10px;color:var(--ink-2);text-decoration:none;font-size:13.5px;
+  border-left:2px solid transparent;transition:.15s;border-radius:0 4px 4px 0}
+.toc a:hover{color:var(--ink);background:var(--surface)}
+.toc a.on{color:var(--ink);border-left-color:var(--s1);background:var(--surface)}
+.toc a.sub{padding-left:22px;font-size:12.5px}
+main{padding:28px 0 140px;min-width:0}
+section{scroll-margin-top:24px;margin-bottom:8px}
+/* ========== 排版 ========== */
+h1{font-size:34px;line-height:1.25;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:25px;line-height:1.3;letter-spacing:-.015em;margin:64px 0 14px;padding-top:18px;border-top:1px solid var(--border)}
+h3{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em}
+h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+p{margin:0 0 15px;color:var(--ink-2)}
+strong{color:var(--ink);font-weight:640}
+em{color:var(--ink);font-style:normal;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--s1) 34%,transparent) 0);padding:0 1px}
+a{color:var(--s1)}
+code{font-family:var(--mono);font-size:.875em;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--ink)}
+ul,ol{color:var(--ink-2);padding-left:22px;margin:0 0 15px}
+li{margin:6px 0}
+li::marker{color:var(--ink-3)}
+.lead{font-size:18px;line-height:1.7;color:var(--ink-2)}
+.eyebrow{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--s1);font-weight:600;margin-bottom:10px}
+/* ========== 组件 ========== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:20px 0}
+.card-t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;font-weight:600}
+.note{border-left:2px solid var(--s1);background:var(--surface);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0}
+.note.warn{border-left-color:var(--warn)}
+.note.crit{border-left-color:var(--crit)}
+.note.ok{border-left-color:var(--ok)}
+.note p:last-child{margin-bottom:0}
+.note-h{font-weight:640;color:var(--ink);margin-bottom:6px;font-size:14.5px;display:flex;align-items:center;gap:7px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+pre{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;
+  font-family:var(--mono);font-size:13px;line-height:1.65;color:var(--ink-2);margin:16px 0}
+pre code{background:none;padding:0;font-size:inherit}
+.cm{color:var(--ink-3)}.kw{color:var(--s7)}.st{color:var(--s3)}.fn{color:var(--s1)}.bad{color:var(--crit)}.gd{color:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+th{text-align:left;padding:9px 12px;color:var(--ink-3);font-weight:600;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;border-bottom:1px solid var(--axis)}
+td{padding:10px 12px;border-bottom:1px solid var(--grid);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.03em;
+  border:1px solid var(--border);color:var(--ink-2)}
+/* ========== 交互控件 ========== */
+.lab{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:26px 0}
+.lab-h{padding:13px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;
+  background:var(--surface-2)}
+.lab-h .ico{font-size:12px;font-weight:700;color:var(--plane);background:var(--s1);width:20px;height:20px;
+  border-radius:5px;display:grid;place-items:center;flex:none}
+.lab-h .t{font-size:14px;font-weight:640;color:var(--ink)}
+.lab-h .s{font-size:12.5px;color:var(--ink-3);margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lab-b{padding:20px}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin-bottom:18px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:150px}
+.f label{font-size:11.5px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;
+  display:flex;justify-content:space-between;gap:10px}
+.f label b{color:var(--s1);font-variant-numeric:tabular-nums;font-weight:640}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--axis);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--s1);cursor:pointer;border:2px solid var(--surface)}
+button{font-family:inherit;font-size:13.5px;font-weight:600;padding:8px 15px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-2);color:var(--ink);transition:.15s}
+button:hover{border-color:var(--s1);color:var(--ink)}
+button.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+button.primary:hover{filter:brightness(1.12)}
+button:disabled{opacity:.4;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;font-size:13.5px;color:var(--ink-2);cursor:pointer;user-select:none}
+.sw input{display:none}
+.sw .tr{width:36px;height:20px;border-radius:12px;background:var(--axis);position:relative;transition:.2s;flex:none}
+.sw .tr::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.sw input:checked+.tr{background:color-mix(in srgb,var(--s1) 45%,transparent)}
+.sw input:checked+.tr::after{left:18px;background:var(--s1)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.stat{background:var(--surface);padding:12px 14px}
+.stat .k{font-size:11px;color:var(--ink-3);letter-spacing:.05em;text-transform:uppercase;font-weight:600;margin-bottom:3px}
+.stat .v{font-size:22px;font-weight:660;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.2}
+.stat .u{font-size:12px;color:var(--ink-3);font-weight:500}
+.stage{background:var(--plane);border:1px solid var(--border);border-radius:10px;position:relative;overflow:hidden}
+.log{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--plane);border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;height:150px;overflow-y:auto;color:var(--ink-2);margin-top:16px}
+.log div{white-space:pre-wrap;word-break:break-word}
+.log .tsp{color:var(--ink-3)}
+/* ========== 测验 ========== */
+.q{border:1px solid var(--border);border-radius:10px;margin:12px 0;background:var(--surface);overflow:hidden}
+.q>summary{padding:14px 18px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none;display:flex;gap:11px;font-size:15px}
+.q>summary::-webkit-details-marker{display:none}
+.q>summary::before{content:"Q";font-size:11px;font-weight:700;color:var(--s1);border:1px solid var(--s1);
+  width:19px;height:19px;border-radius:5px;display:grid;place-items:center;flex:none;margin-top:3px}
+.q[open]>summary{border-bottom:1px solid var(--border);background:var(--surface-2)}
+.q .a{padding:16px 18px 4px 18px}
+.q .a p:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:14px;margin:14px 0}
+.kv dt{color:var(--ink-3);font-weight:600}
+.kv dd{margin:0;color:var(--ink-2)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  aside{position:static;height:auto;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .two{grid-template-columns:1fr}
+}
+.themebtn{position:fixed;right:20px;bottom:20px;z-index:90;width:38px;height:38px;border-radius:10px;
+  display:grid;place-items:center;background:var(--surface);border:1px solid var(--border);font-size:15px;padding:0}
+.path{display:grid;gap:9px;margin:18px 0}
+.pstep{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;padding:13px 16px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px}
+.pstep .n{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--plane);background:var(--ink-3);
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;margin-top:1px}
+.pstep.here{border-color:var(--s1)}
+.pstep.here .n{background:var(--s1)}
+.pstep .ti{font-weight:640;color:var(--ink);font-size:14.5px}
+.pstep .de{font-size:13px;color:var(--ink-3);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12.5px;color:var(--ink-2);margin:12px 0 0}
+.legend span{display:flex;align-items:center;gap:6px}
+</style><style>
+/* Part 2 专用 */
+.scen{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.scen button.act{background:var(--s1);border-color:var(--s1);color:#fff}
+.verd{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:16px}
+.vc{background:var(--surface);padding:12px 14px}
+.vc .k{font-size:11px;color:var(--ink-3);letter-spacing:.04em;font-weight:600;margin-bottom:5px;text-transform:none}
+.vc .v{font-size:15px;font-weight:660;display:flex;align-items:center;gap:6px}
+.vc .v.y{color:var(--ok)} .vc .v.n{color:var(--crit)}
+.ladder{display:grid;gap:6px;margin:16px 0}
+.lrung{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:start;padding:11px 15px;
+  background:var(--surface);border:1px solid var(--border);border-radius:9px}
+.lrung .nm{font-weight:660;color:var(--ink);font-size:14px}
+.lrung .en{font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+.lrung .de{font-size:13.5px;color:var(--ink-2)}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:900px){.three{grid-template-columns:1fr}}
+.hint{font-size:12.5px;color:var(--ink-3);margin:10px 0 0}
+.chip{display:inline-block;font-family:var(--mono);font-size:12px;padding:1px 7px;border-radius:5px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--ink)}
+.axm{display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;margin:10px 0}
+.axm .b{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--plane);background:var(--s1);
+  width:24px;height:24px;border-radius:6px;display:grid;place-items:center;margin-top:2px}
+.sqlc{font-family:var(--mono);font-size:12.5px}
+</style>
+<style>/* fix: grid blowout —— grid 子项默认 min-width:auto 会撑破窄屏 */
+main{min-width:0}
+.wrap{max-width:1240px}
+@media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)}}
+.grid-wrap{max-width:100%;overflow-x:auto}
+@media(max-width:700px){
+  .pstep,.lrung,.axm,.idxrow,.kv{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<button class="themebtn" id="tbtn" title="切换明暗">◐</button>
+<div class="wrap">
+<aside>
+  <div class="toc-brand">分布式系统 · Part 2</div>
+  <nav class="toc" id="toc">
+    <a href="#s0">引子：ON CONFLICT 的语义</a>
+    <a href="#s1">2.1 复制的三种拓扑</a>
+    <a href="#s2">2.2 复制延迟的三个异常</a>
+    <a href="#s2" class="sub">▸ 实验：延迟异常重放</a>
+    <a href="#s3">2.3 一致性谱系</a>
+    <a href="#s3" class="sub">▸ 实验：一致性判定器</a>
+    <a href="#s4">2.4 CAP 的正确读法</a>
+    <a href="#s5">2.5 Quorum：交集性质</a>
+    <a href="#s5" class="sub">▸ 实验：Quorum 配置器</a>
+    <a href="#s6">2.6 冲突解决与 CRDT</a>
+    <a href="#s6" class="sub">▸ 实验：CRDT vs LWW</a>
+    <a href="#s7">2.7 回到一个具体表</a>
+    <a href="#s8">2.8 自测题（10 题）</a>
+    <a href="#s9">Lab 2 · 动手实验</a>
+  </nav>
+</aside>
+<main>
+<section id="s0">
+  <div class="eyebrow">Part 2 · Replication &amp; Consistency</div>
+  <h1>"一致性"这个词，得先拆成七八个才能用</h1>
+  <p class="lead">这一章从一个常见问题开始：PostgreSQL 的 <code>ON CONFLICT</code> 到底对应哪一种一致性语义？把它答清楚，需要用到这一章几乎全部的概念。</p>
+
+<pre><code><span class="cm">-- 同一条 SQL 的三种写法，三种完全不同的一致性语义</span>
+INSERT INTO counters(...) VALUES (...)
+ON CONFLICT (counter_key) DO NOTHING;                            <span class="cm">-- ① first-write-wins</span>
+
+ON CONFLICT (counter_key) DO UPDATE SET val = EXCLUDED.val;      <span class="cm">-- ② last-arriving-wins</span>
+
+ON CONFLICT (counter_key) DO UPDATE
+  SET cnt = counters.cnt + EXCLUDED.cnt;                         <span class="cm">-- ③ 这其实是一个 CRDT</span>
+</code></pre>
+  <table>
+    <thead><tr><th style="width:22%">写法</th><th style="width:26%">真实语义</th><th>会丢并发更新吗</th></tr></thead>
+    <tbody>
+      <tr><td><span class="sqlc">DO NOTHING</span></td><td><strong>first-write-wins</strong><br><span style="font-size:12.5px;color:var(--ink-3)">不是 LWW</span></td><td><strong style="color:var(--ok)">不会</strong>。幂等插入，重试安全 —— 这正是 Lab 0 里那张去重表的 SQL 版本。</td></tr>
+      <tr><td><span class="sqlc">DO UPDATE SET c = EXCLUDED.c</span></td><td><strong>last-arriving-wins</strong></td><td><strong style="color:var(--crit)">会丢</strong>。整行覆盖：先到那次改的字段被后到的整行抹掉。经典的 <em>lost update</em>。</td></tr>
+      <tr><td><span class="sqlc">SET c = t.c + EXCLUDED.c</span></td><td>基于当前值合并</td><td><strong style="color:var(--ok)">不会</strong>。这就是一个 <strong>G-Counter</strong>，本章 §2.6 的主角。</td></tr>
+      <tr><td><span class="sqlc">DO UPDATE ... WHERE t.version &lt; EXCLUDED.version</span></td><td>条件写 / 乐观锁</td><td><strong style="color:var(--ok)">不会</strong>。冲突方失败并重试，把决定权交回应用。</td></tr>
+    </tbody>
+  </table>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>到达顺序的 "last" 为什么更安全</div>
+    <p style="margin-bottom:0">第二行的 "last" 是<strong>到达数据库的顺序</strong>，不是时间戳大小。顺序来自数据库的行锁与 MVCC —— 一个<em>单一的、真实存在的串行化点</em>，完全不受任何机器时钟影响。<br>
+    这等于把 Part 1 §1.5 检查表的第三条做到极致：干脆不用时间戳。所以 Part 1 里那个"时钟歪了丢错人"的事故，在这条路径上<strong>不会发生</strong>。<br>
+    但 lost update 仍然会发生 —— 只是丢法从"丢错人"变成了"后到的整行盖住先到的"。§2.6 会给你一张判断该用哪种写法的表。</p>
+  </div>
+  <div class="card">
+    <div class="card-t">这一章你会带走什么</div>
+    <ul style="margin-bottom:0">
+      <li>复制延迟的<strong>三个经典异常</strong>，以及它们各自对应的会话保证</li>
+      <li>一致性<strong>谱系</strong>：线性一致 → 顺序一致 → 因果一致 → 最终一致，每一级到底放宽了什么</li>
+      <li>一个能<strong>判定执行历史</strong>属于哪个级别的交互工具（真的在跑穷举算法，不是查表）</li>
+      <li>CAP 为什么被广泛误读，以及更有用的 <strong>PACELC</strong></li>
+      <li>Quorum 的本质不是"多数决"，而是<strong>交集性质</strong></li>
+      <li><strong>CRDT</strong> 入门，以及它和 <code>SET c = t.c + EXCLUDED.c</code> 的关系</li>
+    </ul>
+  </div>
+</section>
+
+<section id="s1">
+  <h2>2.1 复制的三种拓扑</h2>
+  <p>所有复制方案都是这三种之一，或它们的组合。选哪种，决定了你会遇到哪一类问题。</p>
+  <div class="three">
+    <div class="card" style="margin:0;border-color:var(--s1)">
+      <div class="card-t" style="color:var(--s1)">单主 leader-based</div>
+      <p style="font-size:13.5px">所有写走同一个主库，从库只读。<br><strong>MySQL 主从、PostgreSQL 流复制、Kafka 分区、MongoDB 副本集。</strong></p>
+      <p style="font-size:13.5px;margin-bottom:0"><strong style="color:var(--ok)">好处</strong>：写入天然串行化，<em>不存在写冲突</em>。<br><strong style="color:var(--crit)">代价</strong>：主库是写入瓶颈和单点；主库故障要选主（Part 3）；从库有复制延迟（§2.2）。</p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s2)">
+      <div class="card-t" style="color:var(--s2)">多主 multi-leader</div>
+      <p style="font-size:13.5px">多个节点都能接受写，互相同步。<br><strong>跨机房双写、CouchDB、离线优先 App。</strong></p>
+      <p style="font-size:13.5px;margin-bottom:0"><strong style="color:var(--ok)">好处</strong>：就近写入，机房级容灾。<br><strong style="color:var(--crit)">代价</strong>：<em>必然产生写冲突</em>，必须有冲突检测（向量时钟）和解决策略（CRDT / siblings）。这是 Part 1 §1.5 那个坑的主场。</p>
+    </div>
+    <div class="card" style="margin:0;border-color:var(--s3)">
+      <div class="card-t" style="color:var(--s3)">无主 leaderless</div>
+      <p style="font-size:13.5px">客户端直接并行写多个副本，靠 Quorum 保证正确。<br><strong>Dynamo、Cassandra、Riak。</strong></p>
+      <p style="font-size:13.5px;margin-bottom:0"><strong style="color:var(--ok)">好处</strong>：没有选主，节点故障对可用性影响最小。<br><strong style="color:var(--crit)">代价</strong>：一致性由 W/R 参数决定，需要读修复和反熵；同样会产生并发写冲突。</p>
+    </div>
+  </div>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>一句话选型</div>
+    <p style="margin-bottom:0">如果你能接受单点写入，<strong>永远优先选单主</strong>——它把冲突问题从"必须解决"降级为"不存在"。多主和无主的全部复杂度，都来自"允许并发写"这一个选择。<br>
+    例如，让 <code>counters</code> 只由一个写入服务更新，本质上就是在做<strong>单写者</strong>——这是同一个思路的应用层版本，而且是最省事的那个版本。</p>
+  </div>
+</section>
+<section id="s2">
+  <h2>2.2 复制延迟的三个经典异常</h2>
+  <p>单主复制里没有写冲突，但有另一类问题：<strong>从库总是落后主库一点</strong>。这个"一点"在正常时候是几毫秒，在主库压力大或网络抖动时可以变成几十秒。三种异常都由它引起，而且各有一个对应的修复手段。</p>
+
+  <div class="ladder">
+    <div class="lrung"><div><div class="nm">① 读不到自己的写</div><div class="en">read-your-writes</div></div>
+      <div class="de">用户改完昵称立刻刷新，看到的还是旧昵称——因为写走了主库，读走了从库，而复制还没到。<br>
+        <strong>修复</strong>：用户自己修改过的数据，一段时间内的读走主库；或按会话粘性把该用户的读固定到某个足够新的从库；或客户端记住自己最后一次写的位点，只读位点不低于它的副本。</div></div>
+    <div class="lrung"><div><div class="nm">② 时光倒流</div><div class="en">monotonic reads</div></div>
+      <div class="de">用户刷新两次，第一次看到了新评论，第二次评论消失了——因为两次读随机落到了两个复制进度不同的从库。<br>
+        <strong>修复</strong>：让同一个用户的读始终落到<em>同一个</em>副本（按 user_id 哈希路由，而不是随机负载均衡）。</div></div>
+    <div class="lrung"><div><div class="nm">③ 因果错乱</div><div class="en">consistent prefix reads</div></div>
+      <div class="de">观察者先看到回答"大约十秒"，再看到问题"你能看到多远的未来"——因为问答分别落在两个分区上，各自的复制进度不同。<br>
+        <strong>修复</strong>：有因果关系的写入放进同一个分区；或在应用层显式追踪因果依赖（Part 1 的向量时钟就是干这个的）。</div></div>
+  </div>
+
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>这三个不是"最终一致性"的例外，而正是它的定义</div>
+    <p style="margin-bottom:0">最终一致性承诺的只有一件事：<em>如果你停止写入，副本最终会收敛。</em>在收敛之前，上面三种现象<strong>全都是被允许的</strong>。<br>
+    所以"我们用了最终一致性"这句话本身几乎没有信息量——真正要问的是：<strong>在收敛之前，你给了用户什么保证？</strong>上面三条叫<em>会话保证（session guarantees）</em>，它们是介于"什么都不保证"和"线性一致"之间的那些实用中间档。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">1</div><div class="t">实验 1 · 复制延迟异常重放</div><div class="s">拖延迟，看异常出现和消失</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>从库 A 复制延迟 <b id="l1a">300 ms</b></label><input type="range" id="r1a" min="0" max="1200" step="50" value="300"></div>
+        <div class="f"><label>从库 B 复制延迟 <b id="l1b">900 ms</b></label><input type="range" id="r1b" min="0" max="1200" step="50" value="900"></div>
+      </div>
+      <div class="scen" id="sc1">
+        <button data-s="0" class="act">① 读不到自己的写</button>
+        <button data-s="1">② 时光倒流</button>
+        <button data-s="2">③ 因果错乱</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv1" viewBox="0 0 720 208" style="width:100%;height:auto;display:block"></svg></div>
+      <div id="o1" style="margin-top:14px"></div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">1) 三个场景都跑一遍，注意判定行会告诉你违反了哪一条保证。<br>
+        2) 把两个延迟都拖到 0——异常消失了。<strong>但这不是修复，这只是"今天没抖动"</strong>。生产事故几乎都发生在延迟突增的那几分钟。<br>
+        3) 只把从库 B 的延迟拖大，观察场景②：<em>异常出现与否，取决于负载均衡把你的两次读分给了谁</em>。这就是为什么单调读的修复手段是"路由到同一个副本"，而不是"把延迟调小"。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>2.3 一致性谱系：把一个词拆成一把梯子</h2>
+  <p>"一致性"是分布式领域最被滥用的词。它至少指三件不同的事：</p>
+  <ul>
+    <li><strong>ACID 的 C</strong>：应用定义的约束不被破坏（余额非负、外键有效）。本质上由应用代码保证，数据库只提供 A 和 I 来帮忙。<em>和分布式一致性没有关系。</em></li>
+    <li><strong>共识里的 agreement</strong>：所有节点对同一个值达成一致。Part 3 的主题。</li>
+    <li><strong>本节说的一致性模型</strong>：多个副本对外表现得多像"只有一份数据"。这是一把有层次的梯子。</li>
+  </ul>
+
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--s1)"><div><div class="nm">线性一致</div><div class="en">linearizable</div></div>
+      <div class="de">系统表现得<strong>就像只有一份数据</strong>，每个操作在其调用与返回之间的某个瞬间原子生效，且<em>尊重真实时间</em>：只要写操作已经返回，之后开始的任何读都必须看到它。<br>
+        <span style="color:var(--ink-3);font-size:13px">代价：每次读写都要走一遍共识或读主库，跨地域时延迟很高。etcd/ZooKeeper 的默认读写、Spanner 的读写事务是这一档。</span></div></div>
+    <div class="lrung" style="border-color:var(--s3)"><div><div class="nm">顺序一致</div><div class="en">sequential</div></div>
+      <div class="de">存在<strong>一个所有人都同意的全序</strong>，且每个客户端自己的操作在这个全序里保持程序序。<br>
+        <em>放宽的是：这个全序不必尊重真实时间。</em>你写完 3 秒后我去读，我读到旧值也不违反——只要能找到一个自洽的全序解释。<br>
+        <span style="color:var(--ink-3);font-size:13px">这就是它和线性一致的唯一区别，也是最容易被忽略的一条。</span></div></div>
+    <div class="lrung" style="border-color:var(--s7)"><div><div class="nm">因果一致</div><div class="en">causal</div></div>
+      <div class="de">只保证<strong>有因果关系的操作</strong>所有人看到的顺序一致；<em>并发操作的顺序，不同客户端可以看到不同的样子。</em><br>
+        <span style="color:var(--ink-3);font-size:13px">这是实践中的甜点：比最终一致强得多，又不需要全局共识，可用性高得多。Part 1 的向量时钟正是实现它的工具。</span></div></div>
+    <div class="lrung" style="border-color:var(--ink-3)"><div><div class="nm">最终一致</div><div class="en">eventual</div></div>
+      <div class="de">只保证<strong>停止写入后副本最终收敛</strong>。收敛之前任意乱序、任意陈旧，§2.2 的三个异常全部允许。<br>
+        <span style="color:var(--ink-3);font-size:13px">"最终"没有时限。这是一个弱到几乎没说什么的保证——但也因此可用性最高、延迟最低。</span></div></div>
+  </div>
+  <p>这四级是<strong>严格包含</strong>关系：线性一致 ⟹ 顺序一致 ⟹ 因果一致 ⟹ 最终一致。越往下保证越弱，可用性和性能越好。<em>选型的本质就是在这把梯子上选一格。</em></p>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">2</div><div class="t">实验 2 · 一致性判定器</div><div class="s">本章核心 · 真在跑穷举算法，不是查表</div></div>
+    <div class="lab-b">
+      <div class="scen" id="sc2"></div>
+      <div class="stage" style="padding:14px"><svg id="sv2" viewBox="0 0 720 190" style="width:100%;height:auto;display:block"></svg></div>
+      <p class="hint">横轴是真实时间（上帝视角）。每个条表示一个操作从<strong>发出</strong>到<strong>返回</strong>的区间——操作在这个区间里的某个瞬间生效，但你不知道是哪一刻。实心 = 写，描边 = 读。初始值为 <span class="chip">⊥</span>。</p>
+      <div class="verd" id="vd2"></div>
+      <div id="ex2" style="margin-top:16px"></div>
+      <div class="note" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--s1)"></span>它在做什么</div>
+        <p style="margin-bottom:0">对每个历史，页面里的代码会<strong>穷举所有可能的操作串行化顺序</strong>（带剪枝的 DFS），检查是否存在一个满足对应约束的顺序：<br>
+        • <strong>线性一致</strong>：必须尊重真实时间序（op1 返回早于 op2 发出 ⇒ op1 在前）+ 读到最近一次写<br>
+        • <strong>顺序一致</strong>：去掉真实时间约束，只保留每个客户端的程序序<br>
+        • <strong>因果一致</strong>：允许每个客户端有<em>各自</em>的串行化，但都必须尊重全局因果序（程序序 + 写→读依赖）<br>
+        • <strong>读己之写 / 单调读</strong>：两个会话保证，直接按定义检查<br>
+        找到的合法顺序会显示在下方。<span style="color:var(--ink-3)">（为了让"某个读返回的是哪次写"没有歧义，所有场景里每次写的值都不相同。）</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="s4">
+  <h2>2.4 CAP 的正确读法</h2>
+  <p>CAP 大概是分布式领域被误读最多的一个定理。先把常见的错误说法列出来：</p>
+  <div class="note crit">
+    <div class="note-h"><span class="dot" style="background:var(--crit)"></span>三个流行的错误</div>
+    <p style="margin-bottom:0"><strong>✗ "三选二"</strong> —— <strong>P 不是可选项。</strong>只要你的系统跨网络，分区就一定会发生（网线、交换机、机房专线、云厂商的网络抖动）。你不能"选择不要分区容错"，你只能选择<em>分区发生时</em>怎么办。所以真正的选择只有两个：CP 还是 AP。<br>
+    <strong>✗ "MongoDB 是 CP，Cassandra 是 AP"</strong> —— 这是系统<em>配置</em>的属性，不是系统的属性。Cassandra 把 W 和 R 都设成 QUORUM 就偏 CP，MongoDB 用 <code>w:1</code> 就偏 AP。<br>
+    <strong>✗ "选了 AP 就没有一致性"</strong> —— C 在 CAP 里特指<strong>线性一致性</strong>。放弃它不等于什么都不保证，因果一致和各种会话保证仍然拿得到，而且它们在分区期间依然可用。</p>
+  </div>
+  <p>精确的表述是：<em>当网络分区发生时，你必须在"继续响应但可能返回陈旧/冲突数据"和"拒绝服务直到分区恢复"之间二选一。</em></p>
+  <table>
+    <thead><tr><th style="width:14%">选择</th><th style="width:36%">分区期间的行为</th><th>典型系统与场景</th></tr></thead>
+    <tbody>
+      <tr><td><strong>CP</strong></td><td>少数派侧<strong>停止服务</strong>（拒绝读写），保证不出错。分区恢复后自动继续。</td><td>etcd、ZooKeeper、Spanner、配置中心、分布式锁、账务核心。<em>宁可停下，不可出错。</em></td></tr>
+      <tr><td><strong>AP</strong></td><td>两侧<strong>都继续服务</strong>，各自接受读写，分区恢复后合并（并可能产生冲突）。</td><td>Cassandra、Dynamo、DNS、购物车、点赞数、CDN 配置。<em>宁可暂时不一致，不可不能用。</em></td></tr>
+    </tbody>
+  </table>
+
+  <h3>更有用的框架：PACELC</h3>
+  <div class="note">
+    <p style="margin-bottom:0"><strong>if (P) then (A or C) else (L or C)</strong><br>
+    <em>分区时</em>在可用性和一致性之间选；<strong>而在没有分区的正常时候（Else），你仍然要在延迟（Latency）和一致性之间选。</strong></p>
+  </div>
+  <p>第二半才是你 99.9% 的时间里真正面对的权衡，而 CAP 完全没提。想要线性一致的读，就得走主库或走一遍共识——跨可用区就是几毫秒，跨地域就是上百毫秒。想要低延迟，就得读本地副本，那就得接受陈旧。</p>
+  <p><strong>这才是日常架构决策的形状。</strong>"我们选 CP 还是 AP" 一年可能讨论一次；"这个查询能不能读从库" 你每周都在决定，而那正是 PACELC 的 ELC 部分。</p>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>落到一个具体系统上</div>
+    <p style="margin-bottom:0">"计数结果能不能读从库"就是一个纯粹的 ELC 决策。如果写入服务写完之后紧接着有下游服务要读这个结果，那就是<strong>读己之写</strong>问题——要么这次读走主库，要么下游拿着写入位点等从库追上。<br>
+    如果只是报表类查询，读从库、容忍几百毫秒陈旧，是完全正确的选择。<em>关键是这个决定要显式做出来，而不是"默认读从库"然后某天被一个偶发的空结果咬到。</em></p>
+  </div>
+</section>
+
+<section id="s5">
+  <h2>2.5 Quorum：本质是交集，不是多数决</h2>
+  <p>Part 0 里我们说过"过半"能防脑裂。现在给出一般形式。设总副本数 <code>N</code>，写入需要 <code>W</code> 个副本确认，读取需要从 <code>R</code> 个副本收集结果：</p>
+  <div class="note">
+    <p style="margin-bottom:0;font-size:18px;text-align:center"><strong>W + R &gt; N</strong></p>
+    <p style="margin-bottom:0;margin-top:10px">当这个不等式成立时，<em>任何读集合与任何写集合必然至少有一个共同的副本</em>，于是读一定能看到最新的写。<strong>整个 Quorum 机制就建立在这一条上。</strong></p>
+  </div>
+  <p>"过半"（<code>W = R = ⌊N/2⌋+1</code>）只是这个不等式的一个特解，而且是让读和写都最均衡的那个解。其他解各有用途：</p>
+  <table>
+    <thead><tr><th style="width:16%">配置</th><th style="width:20%">特点</th><th>适用</th></tr></thead>
+    <tbody>
+      <tr><td><code>W=N, R=1</code></td><td>写慢读快</td><td>读远多于写；但任何一个副本挂掉就<strong>无法写入</strong>，可用性差。</td></tr>
+      <tr><td><code>W=1, R=N</code></td><td>写快读慢</td><td>写入吞吐优先；读要等最慢的副本。</td></tr>
+      <tr><td><code>W=R=⌊N/2⌋+1</code></td><td>均衡</td><td><strong>默认选择。</strong>N=3 时 W=R=2，容忍 1 台故障。</td></tr>
+      <tr><td><code>W+R ≤ N</code></td><td>不保证读到最新</td><td>故意的：延迟最低、可用性最高，换来最终一致。Cassandra 的 <code>ONE/ONE</code> 就是这样。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">3</div><div class="t">实验 3 · Quorum 配置器</div><div class="s">看交集怎么出现和消失</div></div>
+    <div class="lab-b">
+      <div class="ctrl">
+        <div class="f"><label>副本数 N <b id="l3n">5</b></label><input type="range" id="r3n" min="1" max="9" step="1" value="5"></div>
+        <div class="f"><label>写 Quorum W <b id="l3w">3</b></label><input type="range" id="r3w" min="1" max="9" step="1" value="3"></div>
+        <div class="f"><label>读 Quorum R <b id="l3r">3</b></label><input type="range" id="r3r" min="1" max="9" step="1" value="3"></div>
+      </div>
+      <div class="ctrl" style="margin-bottom:14px">
+        <button id="b3maj">设为多数派</button>
+        <button id="b3wn">设为 W=N, R=1</button>
+        <button id="b3w1">设为 W=1, R=N</button>
+        <button id="b3bad">设为 W+R ≤ N</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv3" viewBox="0 0 720 200" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="stats" id="st3"></div>
+      <div id="o3" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <h3>两个必须知道的补充概念</h3>
+  <ul>
+    <li><strong>读修复 read repair</strong>：读取时如果发现某些副本返回了旧值，顺手把新值写回去。这是最终收敛的主要机制之一。</li>
+    <li><strong>宽松 Quorum / 提示移交 sloppy quorum &amp; hinted handoff</strong>：分区期间，如果目标副本不可达，就把写临时交给<em>别的</em>节点暂存，等目标恢复再转交。这提高了写可用性，但<strong>破坏了 W+R&gt;N 的保证</strong>——因为写入的 W 个节点可能根本不是"该存这个 key 的那 N 个节点"。这是 Dynamo 系统里一个常被忽略的细节：<em>开了 sloppy quorum，你的"强一致"配置就不再强一致了。</em></li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2>2.6 冲突解决：从丢数据到不丢数据</h2>
+  <p>只要允许并发写（多主、无主，或者单主但多个应用实例竞争同一行），冲突就必然出现。三条路：</p>
+  <div class="ladder">
+    <div class="lrung" style="border-color:var(--crit)"><div><div class="nm">① LWW</div><div class="en">last-write-wins</div></div>
+      <div class="de">按时间戳或到达顺序二选一。<strong>简单，但一定丢掉一条写入</strong>（Lab 1-3 已经量化过：丢弃率恒为 100%，时钟准不准只改变"丢哪一条"）。<br>
+        <span style="color:var(--ink-3);font-size:13px">可用场景：心跳时间、在线状态这类"幂等且可丢"的数据。</span></div></div>
+    <div class="lrung" style="border-color:var(--warn)"><div><div class="nm">② 保留 siblings</div><div class="en">交给应用合并</div></div>
+      <div class="de">用向量时钟检测出并发，两条都留着，下次读的时候把冲突版本一起返回给应用。<strong>不丢数据，但把复杂度推给了业务代码</strong>，而且要处理"用户看到两个版本"的产品问题。<br>
+        <span style="color:var(--ink-3);font-size:13px">Riak、Dynamo 购物车（合并策略：取并集）。</span></div></div>
+    <div class="lrung" style="border-color:var(--ok)"><div><div class="nm">③ CRDT</div><div class="en">无冲突复制数据类型</div></div>
+      <div class="de">把数据类型设计成<strong>合并操作满足交换律、结合律、幂等律</strong>，于是无论以什么顺序、重复多少次合并，结果都相同——<em>冲突在数学上就不可能存在</em>。<br>
+        <span style="color:var(--ink-3);font-size:13px">代价：不是所有语义都能表达成 CRDT。</span></div></div>
+  </div>
+
+  <h3>四个最常用的 CRDT</h3>
+  <table>
+    <thead><tr><th style="width:18%">类型</th><th style="width:34%">结构与合并</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><strong>G-Counter</strong><br><span style="font-size:12px;color:var(--ink-3)">只增计数器</span></td><td>每个副本维护一个向量 <code>[c1..cN]</code>，只增自己那位。<br>合并 = <strong>逐位取最大</strong>；取值 = 求和。</td><td>浏览量、点赞数。<em>和 Part 1 的向量时钟是同一个结构。</em></td></tr>
+      <tr><td><strong>PN-Counter</strong><br><span style="font-size:12px;color:var(--ink-3)">可增可减</span></td><td>两个 G-Counter：一个记增、一个记减。取值 = 增和 − 减和。</td><td>库存、赞/踩。</td></tr>
+      <tr><td><strong>G-Set / OR-Set</strong><br><span style="font-size:12px;color:var(--ink-3)">集合</span></td><td>G-Set 只能加，合并 = 并集。OR-Set 给每个元素带唯一 tag，支持删除且"加"优先。</td><td>购物车、标签、好友列表。</td></tr>
+      <tr><td><strong>LWW-Register</strong></td><td>值 + 时间戳，合并取时间戳大的。</td><td><em>注意：它是 CRDT，但仍然丢数据</em>——CRDT 保证的是"所有副本收敛到同一个值"，不保证"不丢写入"。这两件事是分开的。</td></tr>
+    </tbody>
+  </table>
+  <div class="note ok">
+    <div class="note-h"><span class="dot" style="background:var(--ok)"></span>这类 SQL 和 CRDT 的关系</div>
+    <p style="margin-bottom:0"><code>ON CONFLICT DO UPDATE SET cnt = t.cnt + EXCLUDED.cnt</code><br>
+    这个合并操作满足交换律和结合律（加法），所以并发写不会丢——但它<strong>不满足幂等律</strong>，同一条消息重复投递会多加一次。所以它是"可交换的"而不是完整的 CRDT，用它的前提是<em>投递侧必须去重</em>（Lab 0 的幂等键）。<br>
+    真正幂等的做法是 G-Counter 那种：<code>SET cnt_by_source = jsonb_set(..., GREATEST(old, new))</code> —— 逐位取最大，重复合并结果不变。</p>
+  </div>
+
+  <div class="lab">
+    <div class="lab-h"><div class="ico">4</div><div class="t">实验 4 · CRDT vs LWW：分区下的计数器</div><div class="s">同一份操作，两种数据类型</div></div>
+    <div class="lab-b">
+      <div class="ctrl" style="margin-bottom:14px">
+        <button class="primary" id="b4p">① 制造网络分区</button>
+        <button id="b4inc0">R1 +1</button>
+        <button id="b4inc1">R2 +1</button>
+        <button id="b4inc2">R3 +1</button>
+        <button id="b4heal">② 恢复网络并合并</button>
+        <button id="b4clr">重置</button>
+      </div>
+      <div class="stage" style="padding:14px"><svg id="sv4" viewBox="0 0 720 220" style="width:100%;height:auto;display:block"></svg></div>
+      <div class="stats" id="st4"></div>
+      <div id="o4" style="margin-top:14px"></div>
+      <div class="note ok" style="margin-bottom:0">
+        <div class="note-h"><span class="dot" style="background:var(--ok)"></span>动手任务</div>
+        <p style="margin-bottom:0">点「制造网络分区」，然后在三个副本上各点几次 +1，再点「恢复并合并」。<br>
+        <strong>LWW 寄存器</strong>：合并后只剩某一个副本的值，其他副本的增量全部消失。<br>
+        <strong>G-Counter</strong>：合并后精确等于总点击数，一次不多一次不少。<br>
+        再点一次「恢复并合并」——<strong>G-Counter 的结果不变（幂等），LWW 也不变但值仍然是错的</strong>。这就是"收敛"和"正确"是两件事。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <h2>2.7 回到一个具体表：一份判断清单</h2>
+  <p>把这一章用到 <code>counters</code> 上。按顺序问自己四个问题：</p>
+  <div class="axm"><div class="b">1</div><div><strong>真的是单写者吗？</strong><br>"只由一个写入服务写"如果指的是<em>单个进程</em>，那你没有并发写，本章后半段的问题都不存在，可以直接跳到问题 4。<br>如果这个服务在 K8s 上跑多副本，那两个 pod 会并发写同一行——<strong>它是多写者，只是写者名称相同</strong>。此时要么按 key 分片路由（同一个 key 永远落到同一个 pod），要么老老实实处理冲突。</div></div>
+  <div class="axm"><div class="b">2</div><div><strong>并发写的语义是"覆盖"还是"合并"？</strong><br>覆盖（这次计算的结果替代上次）→ <code>DO UPDATE SET ... = EXCLUDED....</code> 是对的，lost update 在语义上无害。<br>合并（多个来源各自贡献一部分）→ 整行覆盖<strong>一定会丢</strong>，要改成字段级合并或加版本号条件写。</div></div>
+  <div class="axm"><div class="b">3</div><div><strong>需不需要知道"这次写是基于哪个版本算出来的"？</strong><br>如果写入服务采用"读旧值 → 计算 → 写新值"这种读改写模式，<strong>整行覆盖会丢掉中间那次更新</strong>（经典 lost update）。修复：加一个 <code>version</code> 列，写的时候带 <code>WHERE version = :read_version</code>，冲突了就重读重算。这就是乐观锁。</div></div>
+  <div class="axm"><div class="b">4</div><div><strong>下游读这张表，能不能读从库？</strong><br>这是 PACELC 的 ELC 部分。写入服务写完立刻有下游要读 → 读己之写问题，这次读走主库。只是报表 → 读从库没问题。<em>显式决定，不要默认。</em></div></div>
+  <div class="note warn">
+    <div class="note-h"><span class="dot" style="background:var(--warn)"></span>顺便再提一次 Part 1 说的那个坑</div>
+    <p style="margin-bottom:0">如果 <code>raw_events → counters</code> 这条链路是用 <code>updated_at</code> 做增量游标的，去查一下长事务导致的漏拉问题——那个 bug 和时钟准不准无关，纯粹是"打戳时刻 ≠ 可见时刻"，而且它<strong>不留任何痕迹</strong>。</p>
+  </div>
+</section>
+<section id="s8">
+  <h2>2.8 自测题</h2>
+  <p>先自己想 30 秒再展开。</p>
+
+  <details class="q"><summary>1. 线性一致和顺序一致，唯一的区别是什么？</summary>
+    <div class="a"><p><strong>是否尊重真实时间。</strong></p>
+    <p>两者都要求存在一个全序，且每个客户端自己的操作在全序里保持程序序。线性一致<em>额外</em>要求：如果操作 A 在操作 B 开始之前就已经返回，那么 A 在全序里必须排在 B 前面。</p>
+    <p style="margin-bottom:0">实际后果：你写完并收到成功响应，3 秒后我去读，顺序一致<strong>允许</strong>我读到旧值（只要能找到一个自洽的全序把我的读排在你的写之前）；线性一致<strong>禁止</strong>。这就是为什么线性一致必须走主库或走共识——它需要一个真实时间上的同步点。</p></div></details>
+
+  <details class="q"><summary>2. 为什么说 CAP 的"三选二"是错的？</summary>
+    <div class="a"><p>因为 <strong>P 不是可选项</strong>。只要系统跨网络，分区就一定会发生——你不能选择"不要分区容错"，你只能选择<em>分区发生时</em>的行为。</p>
+    <p style="margin-bottom:0">所以真正的选择只有二选一：分区期间是继续服务（AP，可能返回陈旧或冲突数据），还是拒绝服务（CP，少数派停摆）。而且这是<strong>系统配置</strong>的属性而非系统本身的属性：Cassandra 把 W/R 设成 QUORUM 就偏 CP，MongoDB 用 <code>w:1</code> 就偏 AP。</p></div></details>
+
+  <details class="q"><summary>3. PACELC 比 CAP 多说了什么？为什么那部分更重要？</summary>
+    <div class="a"><p>多说了 <strong>ELC</strong>：<em>没有分区的正常时候，你仍然要在延迟（Latency）和一致性（Consistency）之间权衡。</em></p>
+    <p style="margin-bottom:0">这部分更重要，因为分区是罕见事件，而延迟-一致性的权衡是你<strong>每天</strong>都在做的决定："这个查询能不能读从库？"就是一次 ELC 决策。想要线性一致的读就得走主库或共识（跨可用区几毫秒、跨地域上百毫秒），想要低延迟就得读本地副本并接受陈旧。CAP 对这个 99.9% 的时间只字未提。</p></div></details>
+
+  <details class="q"><summary>4. Quorum 的 W+R&gt;N 保证了什么？它的本质是什么？</summary>
+    <div class="a"><p>保证<strong>任意读集合与任意写集合必然有交集</strong>，于是读一定能碰到至少一个持有最新值的副本。</p>
+    <p style="margin-bottom:0">本质是<strong>集合的交集性质</strong>，不是"少数服从多数"。"过半"只是 <code>W=R=⌊N/2⌋+1</code> 这一个特解，它恰好让读写负载最均衡。理解这一点后，<code>W=N,R=1</code>（写慢读快）和 <code>W=1,R=N</code>（写快读慢）就都是同一个不等式的另外两个解，各有适用场景。</p></div></details>
+
+  <details class="q"><summary>5. 开启 sloppy quorum 之后，W+R&gt;N 还成立吗？</summary>
+    <div class="a"><p><strong>不成立了。</strong>sloppy quorum 在目标副本不可达时，把写临时交给<em>其他</em>节点暂存（hinted handoff），等目标恢复再转交。</p>
+    <p style="margin-bottom:0">于是"写入的那 W 个节点"可能根本不在"该存这个 key 的那 N 个节点"里，读取时从 R 个正规副本里读，可能一个都碰不到那次写。<em>它用一致性换写可用性</em>。这是 Dynamo 系风格系统里最常被忽略的一个配置项：<strong>开了它，你自以为的"强一致"配置就不再强一致了。</strong></p></div></details>
+
+  <details class="q"><summary>6. §2.2 的三个复制延迟异常，各自的修复手段是什么？共同点是什么？</summary>
+    <div class="a"><ul>
+      <li><strong>读不到自己的写</strong> → 用户自己改过的数据读主库；或客户端带上自己最后一次写的位点，只读追上该位点的副本。</li>
+      <li><strong>时光倒流</strong> → 同一个用户的读固定路由到<em>同一个</em>副本（按 user_id 哈希，而非随机负载均衡）。</li>
+      <li><strong>因果错乱</strong> → 有因果关系的写放进同一个分区；或显式追踪因果依赖（向量时钟）。</li>
+    </ul>
+    <p style="margin-bottom:0"><strong>共同点：三个修复手段没有一个是"把复制延迟调小"。</strong>调小延迟只是降低了发生概率，把偶发故障变成更难复现的偶发故障。真正的修复都是改变<em>路由或依赖追踪</em>——也就是给系统加上一个明确的保证，而不是指望运气。</p></div></details>
+
+  <details class="q"><summary>7. CRDT 保证"收敛"，这等于"不丢数据"吗？</summary>
+    <div class="a"><p><strong>不等于。</strong>CRDT 保证的是：无论以什么顺序、重复多少次合并，所有副本最终得到<em>同一个值</em>。它不保证那个值是"正确"的。</p>
+    <p style="margin-bottom:0">最好的反例就是 <strong>LWW-Register</strong>：它是一个合法的 CRDT（合并=取时间戳大的，满足交换律结合律幂等律），所有副本必然收敛，但它照样丢掉一条并发写。<em>收敛是关于"最终一致"的性质，不丢数据是关于"语义"的性质，两者正交。</em>G-Counter 之所以两样都有，是因为它的合并操作（逐位取最大）恰好也保留了全部信息。</p></div></details>
+
+  <details class="q"><summary>8. <code>ON CONFLICT DO UPDATE SET cnt = t.cnt + EXCLUDED.cnt</code> 是一个完整的 CRDT 吗？</summary>
+    <div class="a"><p><strong>不是，它少了幂等律。</strong>加法满足交换律和结合律，所以并发写不会丢；但同一条消息重复投递会多加一次。</p>
+    <p style="margin-bottom:0">所以用它的前提是<strong>投递侧必须去重</strong>——回到 Lab 0 的幂等键。真正幂等的做法是 G-Counter 那种按来源分槽、合并时逐位取最大：重复合并同一份数据结果不变。<em>这也是为什么 Kafka 的 exactly-once 和 CRDT 是互补而非替代关系。</em></p></div></details>
+
+  <details class="q"><summary>9. 一个服务在 K8s 上跑 3 个副本，都写同一张表的同一行。这算单主复制吗？会有什么问题？</summary>
+    <div class="a"><p><strong>数据库层面是单主</strong>（只有一个 PostgreSQL 主库），<strong>但应用层面是多写者</strong>。三个 pod 会并发提交更新到同一行。</p>
+    <p>数据库的行锁会把它们串行化，所以不会有"数据分叉"，但会有 <strong>lost update</strong>：如果每个 pod 是"读旧值 → 计算 → 写新值"，那么 pod A 读到 v1、pod B 也读到 v1，两者各自算完写回，<em>后写的覆盖先写的，A 的计算结果消失</em>。</p>
+    <p style="margin-bottom:0">三种修复：① 按 key 分片路由，同一行永远只由一个 pod 处理（把多写者变回单写者，最省事）；② 乐观锁——加 version 列，写时 <code>WHERE version = :read_version</code>，冲突就重读重算；③ 把操作改成可交换的形式（<code>SET c = t.c + delta</code>），根本不需要先读。</p></div></details>
+
+  <details class="q"><summary>10. 【综合】设计一个"文章点赞数"功能，多机房部署。逐条走一遍这一章的决策。</summary>
+    <div class="a">
+    <p><strong>① 复制拓扑</strong>：点赞是高频写、跨地域，单主会让远端机房写入延迟很高。倾向多主或无主。</p>
+    <p><strong>② 一致性档位</strong>：点赞数<em>不需要线性一致</em>。用户看到的数字差几个不影响任何决策。选<strong>最终一致</strong>，配上<strong>读己之写</strong>（我点了赞，我自己刷新必须看到自己那一票，否则会重复点）。这就是典型的"整体弱、局部强"。</p>
+    <p><strong>③ 冲突解决</strong>：点赞语义是<em>累加</em>，LWW 一定丢——两个机房同时 +1，整数覆盖后只剩 +1。用 <strong>PN-Counter</strong>（可增可减，支持取消赞），按机房分槽，合并逐位取最大。</p>
+    <p><strong>④ 落到实现</strong>：每个机房维护 <code>likes_by_dc: {dc1: 1042, dc2: 887, dc3: 15}</code>，本机房只增自己那一槽；展示时求和；跨机房同步用逐位取最大，天然幂等，重传无害。</p>
+    <p><strong>⑤ 读己之写</strong>：用户点赞后，本地立刻乐观更新 UI，并把"我赞过"这个事实存在本机房（用户天然绑定机房）。这样即使跨机房同步慢几秒也不影响体验。</p>
+    <p style="margin-bottom:0"><strong>⑥ 去重</strong>：同一用户重复点赞用唯一约束拦（<code>(user_id, article_id)</code> 唯一索引 + <code>ON CONFLICT DO NOTHING</code>）——Lab 0 的幂等键。<em>注意这一层用的是 first-write-wins，和计数层的 CRDT 是两个不同的机制，各管一段。</em></p>
+    <p style="margin-bottom:0">如果你能自己想到 ③ 和 ⑥ 是两个独立机制，说明这两章已经串起来了。</p></div></details>
+</section>
+
+<section id="s9">
+  <h2>Lab 2 · 动手实验</h2>
+  <p>代码在 <code>~/Code/distributed-systems-course/</code>，Go 与 Java 各一份。</p>
+  <table>
+    <thead><tr><th style="width:26%">实验</th><th>你会亲手做出来的东西</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Lab 2-1</strong><br>Quorum KV 存储</td><td>N 个副本的键值存储，可配 W/R。跑 N 次读写，统计<strong>陈旧读的比例</strong>，验证 W+R&gt;N 时为 0、W+R≤N 时不为 0。</td></tr>
+      <tr><td><strong>Lab 2-2</strong><br>分区下的 CP vs AP</td><td>注入网络分区，同一份工作负载跑两种策略：CP（少数派拒绝服务）和 AP（两侧都接受写）。统计各自的<strong>成功率</strong>和<strong>产生的冲突数</strong>——把 CAP 的取舍变成两个具体数字。</td></tr>
+      <tr><td><strong>Lab 2-3</strong><br>线性一致性检查器</td><td>实现和课件实验 2 同款的穷举判定器，对若干条执行历史判定线性一致 / 顺序一致 / 因果一致。<strong>这是 Jepsen 做的事情的极简版</strong>，Part 6 会再回来。</td></tr>
+      <tr><td><strong>Lab 2-4</strong><br>CRDT</td><td>实现 G-Counter、PN-Counter、OR-Set，随机分区随机合并 1000 次，验证<strong>无论合并顺序如何结果都相同</strong>（收敛性），并和 LWW 对照统计丢失量。</td></tr>
+    </tbody>
+  </table>
+<pre><code><span class="cm"># Go</span>
+cd ~/Code/distributed-systems-course/go/lab02 &amp;&amp; go run .
+
+<span class="cm"># Java</span>
+cd ~/Code/distributed-systems-course/java/lab02 &amp;&amp; java Lab02.java
+
+<span class="cm"># 调参</span>
+go run . -n 5 -w 3 -r 3 -ops 500 -lag 200
+</code></pre>
+  <div class="note">
+    <div class="note-h"><span class="dot" style="background:var(--s1)"></span>做完 Lab 2 后回答</div>
+    <p style="margin-bottom:0">把 <code>-w 3 -r 3 -n 5</code> 改成 <code>-w 2 -r 2 -n 5</code>（W+R=4 ≤ 5），陈旧读比例会从 0 变成多少？它和复制延迟 <code>-lag</code> 是什么关系？<em>先猜一个数量级再跑。</em></p>
+  </div>
+
+  <h3>下一章预告</h3>
+  <p><strong>Part 3 · 共识算法</strong>——整条路线的分水岭。这一章我们一直在说"想要线性一致就得走一遍共识"，但共识本身是怎么做到的？我们会从 FLP 不可能性讲起，看 2PC 为什么会阻塞，然后逐行精读 Raft：选举、日志复制、五条安全性属性、成员变更、快照。<strong>Lab 3 你会用 Go 从零写一个能跑的 Raft</strong>，对标 MIT 6.5840 Lab 2。这一个实验的收获超过读十篇论文，建议在那里慢下来。</p>
+</section>
+</main>
+</div>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const NS="http://www.w3.org/2000/svg";
+function el(t,a,x){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e;}
+function cv(n){return getComputedStyle(document.body).getPropertyValue(n).trim();}
+
+$("#tbtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme");
+  document.documentElement.setAttribute("data-theme",c==="dark"?"light":"dark");draw1();draw2();draw3();draw4();};
+const secs=$$("main section"),links=$$("#toc a:not(.sub)");
+function onScroll(){const h=document.documentElement;
+  $("#prog").style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+"%";
+  let cur=secs[0].id;for(const s of secs)if(s.getBoundingClientRect().top<=120)cur=s.id;
+  links.forEach(a=>a.classList.toggle("on",a.getAttribute("href")==="#"+cur));}
+document.addEventListener("scroll",onScroll,{passive:true});onScroll();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 1 · 复制延迟异常重放
+   ══════════════════════════════════════════════════════════════════ */
+let sc1=0;
+const SCEN1=[
+ {t:"① 读不到自己的写",g:"read-your-writes",
+  build:(la,lb)=>{
+    const wAck=100, arrA=wAck+la, readT=260;
+    const ok=readT>=arrA;
+    return {marks:[{row:0,t:wAck,lab:'写入提交 昵称="李四"',c:"--s1"},
+                   {row:1,t:arrA,lab:"从库 A 收到",c:"--s3"},
+                   {row:3,t:readT,lab:"同一用户读从库 A",c:ok?"--ok":"--crit",
+                    val:ok?'读到 "李四" ✓':'读到 "张三" ✗ 旧值'}],
+            ok, why: ok?'从库 A 的延迟（'+la+'ms）小于用户从写到读的间隔（160ms），这次侥幸没事。'
+                       :'用户刚改完昵称就刷新，但读落到了还没追上的从库 A（延迟 '+la+'ms > 160ms），看到的还是旧昵称。',
+            fix:"修复不是把延迟调小，而是：用户自己改过的数据在一段时间内读主库；或客户端带上自己最后一次写的位点，只读追上该位点的副本。"};
+  }},
+ {t:"② 时光倒流",g:"monotonic reads",
+  build:(la,lb)=>{
+    const wAck=100, arrA=wAck+la, arrB=wAck+lb, r1=400, r2=520;
+    const seen1=r1>=arrA, seen2=r2>=arrB;
+    const ok=!(seen1&&!seen2);
+    return {marks:[{row:0,t:wAck,lab:"写入提交 评论#42",c:"--s1"},
+                   {row:1,t:arrA,lab:"从库 A 收到",c:"--s3"},
+                   {row:2,t:arrB,lab:"从库 B 收到",c:"--s2"},
+                   {row:3,t:r1,lab:"第 1 次刷新 → 从库 A",c:seen1?"--ok":"--ink-3",val:seen1?"看到评论#42":"没有评论#42"},
+                   {row:3,t:r2,lab:"第 2 次刷新 → 从库 B",c:ok?"--ok":"--crit",val:seen2?"看到评论#42":"评论#42 消失了 ✗"}],
+            ok, why: ok?'两次读落到的副本进度一致（或都还没收到），没有出现倒退。'
+                       :'两次刷新被负载均衡分给了不同的从库：A 已经收到评论#42，B 还没有（延迟 '+lb+'ms）。用户眼中评论凭空消失。',
+            fix:"修复是让同一个用户的读始终落到同一个副本（按 user_id 哈希路由），而不是随机负载均衡。注意：把延迟调小只是降低概率。"};
+  }},
+ {t:"③ 因果错乱",g:"consistent prefix",
+  build:(la,lb)=>{
+    // 问题写在分区 1（走从库 B），回答写在分区 2（走从库 A）
+    const qT=100, aT=180, arrQ=qT+lb, arrA2=aT+la, readT=520;
+    const seeQ=readT>=arrQ, seeA=readT>=arrA2;
+    const ok=!(seeA&&!seeQ);
+    return {marks:[{row:0,t:qT,lab:'分区1 写入「问题」',c:"--s1"},
+                   {row:0,t:aT,lab:'分区2 写入「回答」（因果依赖问题）',c:"--s1"},
+                   {row:2,t:arrQ,lab:"从库 B 收到「问题」",c:"--s2"},
+                   {row:1,t:arrA2,lab:"从库 A 收到「回答」",c:"--s3"},
+                   {row:3,t:readT,lab:"观察者同时读两个分区",c:ok?"--ok":"--crit",
+                    val:ok?(seeQ?"问题 → 回答 ✓":"两条都还没到"):"只看到「回答」，没有「问题」✗"}],
+            ok, why: ok?'两个分区的复制进度足够接近，因果顺序没有被打乱。'
+                       :'「回答」在因果上依赖「问题」，但它们落在不同分区、复制进度不同。观察者先看到了果，还没看到因。',
+            fix:"修复是把有因果关系的写入放进同一个分区，或在应用层显式追踪因果依赖（Part 1 的向量时钟）。"};
+  }}
+];
+function draw1(){
+  const la=+$("#r1a").value, lb=+$("#r1b").value;
+  $("#l1a").textContent=la+" ms"; $("#l1b").textContent=lb+" ms";
+  const S=SCEN1[sc1].build(la,lb);
+  const svg=$("#sv1"); svg.innerHTML="";
+  const W=720,L=112,R=690,TMAX=1400, Y=[38,80,122,170];
+  const ROW=["主库","从库 A","从库 B","客户端"], RC=["--s1","--s3","--s2","--s4"];
+  const xt=t=>L+Math.min(t,TMAX)/TMAX*(R-L);
+  Y.forEach((y,i)=>{
+    svg.appendChild(el("line",{x1:L,y1:y,x2:R,y2:y,stroke:cv("--grid"),"stroke-width":1.5,"stroke-dasharray":i===3?"4 4":""}));
+    svg.appendChild(el("text",{x:L-10,y:y+4,fill:cv(RC[i]),"font-size":11.5,"font-weight":700,"text-anchor":"end","font-family":cv("--sans")},ROW[i]));
+  });
+  for(let t=0;t<=TMAX;t+=200){
+    svg.appendChild(el("line",{x1:xt(t),y1:26,x2:xt(t),y2:186,stroke:cv("--grid"),"stroke-width":1,opacity:.4}));
+    svg.appendChild(el("text",{x:xt(t),y:200,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"middle","font-family":cv("--sans")},t+"ms"));
+  }
+  S.marks.forEach(m=>{
+    const x=xt(m.t), y=Y[m.row];
+    svg.appendChild(el("circle",{cx:x,cy:y,r:7,fill:cv(m.c),stroke:cv("--plane"),"stroke-width":2}));
+    svg.appendChild(el("text",{x:x,y:y-13,fill:cv("--ink-2"),"font-size":10,"text-anchor":x>R-140?"end":"middle","font-family":cv("--sans")},m.lab));
+    if(m.val) svg.appendChild(el("text",{x:x,y:y+20,fill:cv(m.c),"font-size":10.5,"font-weight":600,"text-anchor":x>R-140?"end":"middle","font-family":cv("--sans")},m.val));
+  });
+  $("#o1").innerHTML='<div class="note '+(S.ok?"ok":"crit")+'" style="margin:0">'+
+    '<div class="note-h"><span class="dot" style="background:'+(S.ok?cv("--ok"):cv("--crit"))+'"></span>'+
+    (S.ok?"这次没有触发异常":"违反了 "+SCEN1[sc1].g+"（"+SCEN1[sc1].t.slice(2)+"）")+'</div>'+
+    '<p>'+S.why+'</p><p style="margin-bottom:0"><strong>'+S.fix+'</strong></p></div>';
+}
+$$("#sc1 button").forEach(b=>b.onclick=()=>{$$("#sc1 button").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act"); sc1=+b.dataset.s; draw1();});
+$("#r1a").oninput=draw1; $("#r1b").oninput=draw1; draw1();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 2 · 一致性判定器（真的在跑穷举）
+   ══════════════════════════════════════════════════════════════════ */
+const INIT="⊥";
+const HIST=[
+ {n:"① 教科书式的线性一致",d:"C1 写完并返回后，C2 才开始读 —— 必须读到新值，而它确实读到了。",
+  ops:[{c:0,k:"w",v:"A",s:0,e:3},{c:1,k:"r",v:"A",s:5,e:8}]},
+ {n:"② 重叠区间里读到旧值",d:"C2 的读与 C1 的写在时间上重叠。线性一致允许它读到旧值——因为可以把读线性化到写之前。",
+  ops:[{c:0,k:"w",v:"A",s:2,e:8},{c:1,k:"r",v:INIT,s:3,e:6},{c:2,k:"r",v:"A",s:10,e:12}]},
+ {n:"③ 陈旧读",d:"C1 的写早已返回，C2 之后才开始读，却读到了初始值。线性一致被打破，但仍能自圆其说。",
+  ops:[{c:0,k:"w",v:"A",s:0,e:3},{c:1,k:"r",v:INIT,s:5,e:8}]},
+ {n:"④ 两个观察者，相反的顺序",d:"两个并发写；C3 看到 A→B，C4 看到 B→A。不存在单一全序能同时解释两人，但因果上没有矛盾。",
+  ops:[{c:0,k:"w",v:"A",s:0,e:2},{c:1,k:"w",v:"B",s:1,e:3},
+       {c:2,k:"r",v:"A",s:5,e:6},{c:2,k:"r",v:"B",s:8,e:9},
+       {c:3,k:"r",v:"B",s:5,e:6},{c:3,k:"r",v:"A",s:8,e:9}]},
+ {n:"⑤ 因果倒置",d:"C2 读到 A 之后才写 B，所以 A 因果先于 B。C3 却先看到 B，又看回了 A。",
+  ops:[{c:0,k:"w",v:"A",s:0,e:2},{c:1,k:"r",v:"A",s:3,e:4},{c:1,k:"w",v:"B",s:5,e:7},
+       {c:2,k:"r",v:"B",s:9,e:10},{c:2,k:"r",v:"A",s:12,e:13}]},
+ {n:"⑥ 读不到自己的写",d:"C1 自己写完，紧接着自己读，却读到初始值。最基本的会话保证被破坏。",
+  ops:[{c:0,k:"w",v:"A",s:0,e:2},{c:0,k:"r",v:INIT,s:4,e:6},{c:1,k:"r",v:"A",s:8,e:10}]}
+];
+let hi=0;
+
+function dfsOrder(ops, idx, canPlace){
+  const placed=new Set(), out=[]; let steps=0;
+  function go(cur){
+    if(++steps>250000) return false;
+    if(out.length===idx.length) return true;
+    for(const j of idx){
+      if(placed.has(j)) continue;
+      if(!canPlace(j,placed)) continue;
+      if(ops[j].k==="r" && ops[j].v!==cur) continue;
+      placed.add(j); out.push(j);
+      if(go(ops[j].k==="w"?ops[j].v:cur)) return true;
+      out.pop(); placed.delete(j);
+    }
+    return false;
+  }
+  return go(INIT)? out.slice() : null;
+}
+const allIdx=ops=>ops.map((_,i)=>i);
+// 线性一致：尊重真实时间序
+function checkLin(ops){
+  return dfsOrder(ops, allIdx(ops), (j,placed)=>{
+    for(let i=0;i<ops.length;i++) if(!placed.has(i)&&i!==j&&ops[i].e<ops[j].s) return false;
+    return true;});
+}
+// 顺序一致：只保留每个客户端的程序序
+function checkSeq(ops){
+  return dfsOrder(ops, allIdx(ops), (j,placed)=>{
+    for(let i=0;i<ops.length;i++) if(!placed.has(i)&&i!==j&&ops[i].c===ops[j].c&&ops[i].s<ops[j].s) return false;
+    return true;});
+}
+// 因果序：程序序 + 写→读依赖，取传递闭包
+function causalReach(ops){
+  const n=ops.length, adj=Array.from({length:n},()=>[]);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    if(i===j)continue;
+    if(ops[i].c===ops[j].c&&ops[i].s<ops[j].s) adj[i].push(j);
+    if(ops[i].k==="w"&&ops[j].k==="r"&&ops[j].v===ops[i].v) adj[i].push(j);
+  }
+  const R=Array.from({length:n},()=>new Array(n).fill(false));
+  for(let s=0;s<n;s++){const st=[s],seen=new Set([s]);
+    while(st.length){const x=st.pop();for(const y of adj[x])if(!seen.has(y)){seen.add(y);R[s][y]=true;st.push(y);}}}
+  return R;
+}
+// 因果一致：每个客户端可以有各自的串行化，但都要尊重因果序
+function checkCausal(ops){
+  const R=causalReach(ops), out={};
+  for(const c of [...new Set(ops.map(o=>o.c))]){
+    const idx=[]; ops.forEach((o,i)=>{ if(o.k==="w"||o.c===c) idx.push(i); });
+    const r=dfsOrder(ops, idx, (j,placed)=>{
+      for(const i of idx) if(!placed.has(i)&&i!==j&&R[i][j]) return false;
+      return true;});
+    if(!r) return null;
+    out[c]=r;
+  }
+  return out;
+}
+// 版本序：写按真实开始时间排序，初始值为版本 0
+function versions(ops){
+  const m={[INIT]:0}; let v=0;
+  ops.filter(o=>o.k==="w").sort((a,b)=>a.s-b.s).forEach(o=>{m[o.v]=++v;});
+  return m;
+}
+function checkRYW(ops){
+  const V=versions(ops), bad=[];
+  for(const c of [...new Set(ops.map(o=>o.c))]){
+    const mine=ops.filter(o=>o.c===c).sort((a,b)=>a.s-b.s);
+    let lastW=null;
+    for(const o of mine){
+      if(o.k==="w") lastW=o;
+      else if(lastW && V[o.v]<V[lastW.v]) bad.push("C"+(c+1)+" 写入 "+lastW.v+" 之后却读到了更旧的 "+o.v);
+    }
+  }
+  return bad;
+}
+function checkMono(ops){
+  const V=versions(ops), bad=[];
+  for(const c of [...new Set(ops.map(o=>o.c))]){
+    const rs=ops.filter(o=>o.c===c&&o.k==="r").sort((a,b)=>a.s-b.s);
+    for(let i=1;i<rs.length;i++)
+      if(V[rs[i].v]<V[rs[i-1].v]) bad.push("C"+(c+1)+" 先读到 "+rs[i-1].v+" 又读回了更旧的 "+rs[i].v);
+  }
+  return bad;
+}
+function fmtSeq(ops,order){
+  return order.map(i=>{const o=ops[i];return (o.k==="w"?"w":"r")+"("+o.v+")@C"+(o.c+1);}).join("  →  ");
+}
+function draw2(){
+  const H=HIST[hi], ops=H.ops;
+  const svg=$("#sv2"); svg.innerHTML="";
+  const W=720,L=64,R=698, clients=[...new Set(ops.map(o=>o.c))].sort((a,b)=>a-b);
+  const TMAX=Math.max(...ops.map(o=>o.e))+2;
+  const xt=t=>L+t/TMAX*(R-L);
+  const rowY=c=>34+clients.indexOf(c)*34;
+  const H2=34+clients.length*34+26;
+  svg.setAttribute("viewBox","0 0 720 "+Math.max(H2+16,120));
+  for(let t=0;t<=TMAX;t+=2){
+    svg.appendChild(el("line",{x1:xt(t),y1:16,x2:xt(t),y2:H2-16,stroke:cv("--grid"),"stroke-width":1,opacity:.4}));
+  }
+  svg.appendChild(el("line",{x1:L,y1:H2-14,x2:R,y2:H2-14,stroke:cv("--axis"),"stroke-width":1}));
+  svg.appendChild(el("text",{x:R,y:H2,fill:cv("--ink-3"),"font-size":9.5,"text-anchor":"end","font-family":cv("--sans")},"真实时间 →"));
+  clients.forEach(c=>{
+    const y=rowY(c);
+    svg.appendChild(el("text",{x:L-12,y:y+4,fill:cv("--ink-2"),"font-size":11.5,"font-weight":700,"text-anchor":"end","font-family":cv("--sans")},"C"+(c+1)));
+  });
+  const CC=["--s1","--s3","--s7","--s2"];
+  ops.forEach(o=>{
+    const y=rowY(o.c), x1=xt(o.s), x2=xt(o.e), col=cv(CC[o.c%4]);
+    if(o.k==="w") svg.appendChild(el("rect",{x:x1,y:y-11,width:Math.max(x2-x1,14),height:22,rx:5,fill:col}));
+    else svg.appendChild(el("rect",{x:x1,y:y-11,width:Math.max(x2-x1,14),height:22,rx:5,fill:"none",stroke:col,"stroke-width":2}));
+    svg.appendChild(el("text",{x:(x1+x2)/2,y:y+4,fill:o.k==="w"?"#fff":cv("--ink"),"font-size":11,"font-weight":650,
+      "text-anchor":"middle","font-family":cv("--mono")},(o.k==="w"?"w(":"r(")+o.v+")"));
+  });
+  // 判定
+  const lin=checkLin(ops), seq=checkSeq(ops), cau=checkCausal(ops),
+        ryw=checkRYW(ops), mono=checkMono(ops);
+  const cell=(k,ok,note)=>'<div class="vc"><div class="k">'+k+'</div><div class="v '+(ok?"y":"n")+'">'+
+    (ok?"✓ 满足":"✗ 违反")+'</div>'+(note?'<div style="font-size:11px;color:var(--ink-3);margin-top:3px">'+note+'</div>':'')+'</div>';
+  $("#vd2").innerHTML=cell("线性一致 linearizable",!!lin)+cell("顺序一致 sequential",!!seq)+
+    cell("因果一致 causal",!!cau)+cell("读己之写 RYW",ryw.length===0)+cell("单调读 monotonic",mono.length===0);
+  // 解释
+  let h='<div class="card" style="margin:0"><div class="card-t">'+H.n+'</div><p style="margin-bottom:12px">'+H.d+'</p>';
+  if(lin) h+='<p style="margin:0 0 6px"><strong style="color:var(--ok)">找到一个线性化顺序</strong>（尊重真实时间 + 每个读都读到最近的写）：<br><span class="chip" style="margin-top:5px;display:inline-block">'+fmtSeq(ops,lin)+'</span></p>';
+  else{
+    h+='<p style="margin:0 0 6px"><strong style="color:var(--crit)">不存在合法的线性化顺序</strong>：任何尊重真实时间序的排列都会让某个读返回错误的值。</p>';
+    if(seq) h+='<p style="margin:0 0 6px"><strong style="color:var(--ok)">但存在一个顺序一致的全序</strong>（去掉真实时间约束后）：<br><span class="chip" style="margin-top:5px;display:inline-block">'+fmtSeq(ops,seq)+'</span><br><span style="font-size:12.5px;color:var(--ink-3)">这就是线性一致与顺序一致的唯一分界：是否必须尊重真实时间。</span></p>';
+    else{
+      h+='<p style="margin:0 0 6px"><strong style="color:var(--crit)">也不存在顺序一致的全序</strong>：不同客户端观察到的顺序互相矛盾，凑不出一个大家都同意的排列。</p>';
+      if(cau){
+        h+='<p style="margin:0 0 6px"><strong style="color:var(--ok)">但因果一致成立</strong> —— 允许每个客户端有各自的串行化，只要都尊重因果序：</p><div style="font-size:12.5px">';
+        for(const c in cau) h+='<div style="margin:3px 0">C'+(+c+1)+' 眼中的顺序：<span class="chip">'+fmtSeq(ops,cau[c])+'</span></div>';
+        h+='</div><p style="margin:8px 0 0;font-size:12.5px;color:var(--ink-3)">两个写是<strong>并发</strong>的，因果上没有先后，所以不同观察者看到不同顺序并不矛盾。这正是因果一致比顺序一致可用性高的原因。</p>';
+      } else h+='<p style="margin:0 0 6px"><strong style="color:var(--crit)">因果一致也不成立</strong>：有客户端看到了"果"却看不到"因"，或看到了因果颠倒的顺序。</p>';
+    }
+  }
+  if(ryw.length) h+='<p style="margin:10px 0 0;color:var(--crit);font-size:13.5px"><strong>读己之写被破坏：</strong>'+ryw.join("；")+'</p>';
+  if(mono.length) h+='<p style="margin:6px 0 0;color:var(--crit);font-size:13.5px"><strong>单调读被破坏：</strong>'+mono.join("；")+'</p>';
+  if(cau&&mono.length) h+='<div class="note warn" style="margin:12px 0 0"><div class="note-h"><span class="dot" style="background:var(--warn)"></span>'+
+    '为什么因果一致 ✓ 而单调读 ✗ ？这不是 bug</div><p style="margin-bottom:0">'+
+    '因为两个判定用的<strong>版本序不是同一个</strong>。单调读是按<em>真实时间</em>给写排版本（先发生的写版本更小），'+
+    '于是 C4 先看到晚写的 B、再看到早写的 A，就算"倒退"。<br>'+
+    '而因果一致根本不承认真实时间：在 C4 自己的串行化里 B 就排在 A 前面，它从未倒退过。<br>'+
+    '<strong>这正说明"单调读"是一个相对于某个版本序定义的会话保证</strong>，换一个版本序结论就变。'+
+    '真实系统里这个版本序通常由存储层给出（LSN、事务号），而不是墙上时钟——这也是 Part 1 那一章的直接应用。</p></div>';
+  h+='</div>';
+  $("#ex2").innerHTML=h;
+}
+$("#sc2").innerHTML=HIST.map((x,i)=>'<button data-i="'+i+'"'+(i===0?' class="act"':'')+'>'+x.n+'</button>').join("");
+$$("#sc2 button").forEach(b=>b.onclick=()=>{$$("#sc2 button").forEach(x=>x.classList.remove("act"));
+  b.classList.add("act"); hi=+b.dataset.i; draw2();});
+draw2();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 3 · Quorum 配置器
+   ══════════════════════════════════════════════════════════════════ */
+function draw3(){
+  let N=+$("#r3n").value;
+  const rw=$("#r3w"), rr=$("#r3r");
+  rw.max=N; rr.max=N;
+  let W=Math.min(+rw.value,N), R=Math.min(+rr.value,N);
+  rw.value=W; rr.value=R;
+  $("#l3n").textContent=N; $("#l3w").textContent=W; $("#l3r").textContent=R;
+
+  const svg=$("#sv3"); svg.innerHTML="";
+  const CXp=250, CY=100, RAD=72, CX2=520;
+  // 写集合取前 W 个，读集合取后 R 个 —— 最坏情况的重叠
+  const wSet=new Set(), rSet=new Set();
+  for(let i=0;i<W;i++) wSet.add(i);
+  for(let i=0;i<R;i++) rSet.add((N-1-i+N)%N);
+  const inter=[...wSet].filter(i=>rSet.has(i));
+  const guaranteed = W+R>N;
+
+  const ring=(cx,title,set,col)=>{
+    svg.appendChild(el("text",{x:cx,y:20,fill:cv("--ink-2"),"font-size":12,"font-weight":650,"text-anchor":"middle","font-family":cv("--sans")},title));
+    for(let i=0;i<N;i++){
+      const a=-Math.PI/2+i*2*Math.PI/N, x=cx+RAD*Math.cos(a), y=CY+RAD*Math.sin(a);
+      const on=set.has(i), both=inter.includes(i);
+      svg.appendChild(el("circle",{cx:x,cy:y,r:15,fill:on?cv(both?"--s4":col):cv("--surface-2"),
+        stroke:both?cv("--s4"):cv("--border"),"stroke-width":both?2.5:1}));
+      svg.appendChild(el("text",{x:x,y:y+4,fill:on?"#fff":cv("--ink-3"),"font-size":11,"font-weight":700,
+        "text-anchor":"middle","font-family":cv("--sans")},"N"+(i+1)));
+    }
+  };
+  ring(CXp,"写集合（W = "+W+"）",wSet,"--s1");
+  ring(CX2,"读集合（R = "+R+"）",rSet,"--s3");
+  svg.appendChild(el("text",{x:385,y:CY-8,fill:cv("--ink-3"),"font-size":22,"text-anchor":"middle"},"∩"));
+  svg.appendChild(el("text",{x:385,y:CY+16,fill:inter.length?cv("--s4"):cv("--crit"),"font-size":12,"font-weight":700,
+    "text-anchor":"middle","font-family":cv("--sans")},inter.length?inter.length+" 个交集":"无交集"));
+  svg.appendChild(el("text",{x:385,y:CY+34,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},"（金色节点）"));
+  svg.appendChild(el("text",{x:385,y:186,fill:cv("--ink-3"),"font-size":10.5,"text-anchor":"middle","font-family":cv("--sans")},
+    "图示取最坏情况的重叠：写用前 W 个副本，读用后 R 个副本"));
+
+  $("#st3").innerHTML=
+    '<div class="stat"><div class="k">W + R</div><div class="v" style="color:'+(guaranteed?cv("--ok"):cv("--crit"))+'">'+(W+R)+'</div><div class="u">对比 N = '+N+'</div></div>'+
+    '<div class="stat"><div class="k">读到最新</div><div class="v" style="color:'+(guaranteed?cv("--ok"):cv("--crit"))+'">'+(guaranteed?"保证":"不保证")+'</div><div class="u">W+R '+(guaranteed?">":"≤")+' N</div></div>'+
+    '<div class="stat"><div class="k">写可容忍故障</div><div class="v">'+(N-W)+'</div><div class="u">台节点</div></div>'+
+    '<div class="stat"><div class="k">读可容忍故障</div><div class="v">'+(N-R)+'</div><div class="u">台节点</div></div>'+
+    '<div class="stat"><div class="k">读写都可用</div><div class="v">'+Math.min(N-W,N-R)+'</div><div class="u">台节点故障内</div></div>';
+
+  let verdict, cls;
+  if(guaranteed){
+    verdict='<strong>W + R = '+(W+R)+' &gt; N = '+N+'</strong>，任意读集合与任意写集合必然有交集（图上的金色节点）。'+
+      '读取时至少能碰到一个持有最新值的副本，配合版本号挑出最新的那个即可。'+
+      (W===R&&W===Math.floor(N/2)+1?'<br>这是<strong>多数派配置</strong>——读写负载最均衡的那个解，也是绝大多数系统的默认。':'')+
+      (W===N?'<br>注意 W=N：任何一个副本不可用就<strong>完全无法写入</strong>，写可用性最差。':'')+
+      (R===N?'<br>注意 R=N：读要等最慢的副本，尾延迟很差，且任一副本故障就读不了。':'');
+    cls="ok";
+  }else{
+    verdict='<strong>W + R = '+(W+R)+' ≤ N = '+N+'</strong>，读集合可能和写集合完全不相交——'+
+      '<strong style="color:var(--crit)">读到的全是旧副本，看不到最新的写</strong>。<br>'+
+      '这未必是错误配置：Cassandra 的 <code>ONE/ONE</code> 就是故意这么设的，用一致性换最低延迟和最高可用性，'+
+      '靠读修复和反熵在后台慢慢收敛。<em>关键是这个取舍必须是你主动选的。</em>';
+    cls="crit";
+  }
+  $("#o3").innerHTML='<div class="note '+cls+'" style="margin:0"><div class="note-h"><span class="dot" style="background:'+
+    (guaranteed?cv("--ok"):cv("--crit"))+'"></span>'+(guaranteed?"交集存在":"交集可能为空")+'</div><p style="margin-bottom:0">'+verdict+'</p></div>';
+}
+["r3n","r3w","r3r"].forEach(i=>$("#"+i).oninput=draw3);
+$("#b3maj").onclick=()=>{const N=+$("#r3n").value,q=Math.floor(N/2)+1;$("#r3w").value=q;$("#r3r").value=q;draw3();};
+$("#b3wn").onclick=()=>{const N=+$("#r3n").value;$("#r3w").value=N;$("#r3r").value=1;draw3();};
+$("#b3w1").onclick=()=>{const N=+$("#r3n").value;$("#r3w").value=1;$("#r3r").value=N;draw3();};
+$("#b3bad").onclick=()=>{const N=+$("#r3n").value;$("#r3w").value=Math.max(1,Math.floor(N/2));$("#r3r").value=Math.max(1,Math.floor(N/2));draw3();};
+draw3();
+
+/* ══════════════════════════════════════════════════════════════════
+   实验 4 · CRDT vs LWW 计数器
+   ══════════════════════════════════════════════════════════════════ */
+const S4={part:false,ts:0,merged:0,
+  g:[[0,0,0],[0,0,0],[0,0,0]],      // 每个副本各自持有的 G-Counter 向量
+  lw:[{v:0,t:0},{v:0,t:0},{v:0,t:0}], // 每个副本各自持有的 LWW 寄存器
+  clicks:0, log:[]};
+function inc4(i){
+  S4.ts++; S4.clicks++;
+  S4.g[i][i]++;                       // G-Counter：只增自己那一槽
+  S4.lw[i]={v:S4.lw[i].v+1,t:S4.ts};  // LWW：本地读改写，带时间戳
+  if(!S4.part){                        // 没有分区就立刻同步
+    for(let k=0;k<3;k++) if(k!==i) merge(k,i);
+  }
+  S4.log.push("R"+(i+1)+" +1"+(S4.part?"（分区中，仅本地）":"（已同步到其他副本）"));
+  draw4();
+}
+function merge(a,b){
+  for(let k=0;k<3;k++) S4.g[a][k]=Math.max(S4.g[a][k],S4.g[b][k]);   // 逐位取最大
+  if(S4.lw[b].t>S4.lw[a].t) S4.lw[a]={...S4.lw[b]};                   // 取时间戳大的
+}
+function heal4(){
+  if(!S4.part && S4.merged) { S4.log.push("再次合并（网络已恢复）"); }
+  S4.part=false; S4.merged++;
+  for(let r=0;r<3;r++) for(let a=0;a<3;a++) for(let b=0;b<3;b++) if(a!==b) merge(a,b);
+  S4.log.push("网络恢复，三个副本两两合并（第 "+S4.merged+" 次）");
+  draw4();
+}
+function draw4(){
+  const svg=$("#sv4"); svg.innerHTML="";
+  const XS=[130,360,590], CY=92;
+  if(S4.part){
+    [245,475].forEach(x=>{
+      svg.appendChild(el("line",{x1:x,y1:26,x2:x,y2:170,stroke:cv("--crit"),"stroke-width":2,"stroke-dasharray":"6 5"}));
+      svg.appendChild(el("text",{x:x,y:20,fill:cv("--crit"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},"网络中断"));
+    });
+  }else{
+    svg.appendChild(el("line",{x1:XS[0],y1:CY,x2:XS[2],y2:CY,stroke:cv("--grid"),"stroke-width":2,"stroke-dasharray":"4 4"}));
+  }
+  const CC=["--s1","--s3","--s7"];
+  XS.forEach((x,i)=>{
+    svg.appendChild(el("circle",{cx:x,cy:CY,r:34,fill:cv("--surface"),stroke:cv(CC[i]),"stroke-width":2}));
+    svg.appendChild(el("text",{x:x,y:CY-4,fill:cv("--ink"),"font-size":13,"font-weight":700,"text-anchor":"middle","font-family":cv("--sans")},"R"+(i+1)));
+    svg.appendChild(el("text",{x:x,y:CY+13,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},"副本"));
+    svg.appendChild(el("text",{x:x,y:CY+56,fill:cv("--ok"),"font-size":11.5,"text-anchor":"middle","font-family":cv("--mono")},
+      "G ["+S4.g[i].join(",")+"] = "+S4.g[i].reduce((a,b)=>a+b,0)));
+    svg.appendChild(el("text",{x:x,y:CY+74,fill:cv("--crit"),"font-size":11.5,"text-anchor":"middle","font-family":cv("--mono")},
+      "LWW "+S4.lw[i].v+" @t"+S4.lw[i].t));
+    svg.appendChild(el("text",{x:x,y:CY-52,fill:cv("--ink-3"),"font-size":10,"text-anchor":"middle","font-family":cv("--sans")},
+      S4.part?"隔离中":"已连通"));
+  });
+  const gvals=S4.g.map(v=>v.reduce((a,b)=>a+b,0)), lvals=S4.lw.map(x=>x.v);
+  const conv=a=>a.every(x=>x===a[0]);
+  $("#st4").innerHTML=
+    '<div class="stat"><div class="k">真实点击总数</div><div class="v">'+S4.clicks+'</div><div class="u">上帝视角</div></div>'+
+    '<div class="stat"><div class="k">G-Counter 读数</div><div class="v" style="color:var(--ok)">'+gvals.join(" / ")+'</div><div class="u">'+(conv(gvals)?"三副本已收敛":"尚未收敛")+'</div></div>'+
+    '<div class="stat"><div class="k">LWW 读数</div><div class="v" style="color:var(--crit)">'+lvals.join(" / ")+'</div><div class="u">'+(conv(lvals)?"三副本已收敛":"尚未收敛")+'</div></div>'+
+    '<div class="stat"><div class="k">LWW 丢失</div><div class="v" style="color:var(--crit)">'+(conv(lvals)?S4.clicks-lvals[0]:"—")+'</div><div class="u">次点击</div></div>';
+  let note="";
+  if(S4.clicks===0) note='<p style="margin-bottom:0;color:var(--ink-3)">先点「制造网络分区」，再在三个副本上各点几次 +1，然后点「恢复网络并合并」。</p>';
+  else if(S4.part) note='<p style="margin-bottom:0">分区中：三个副本各自记账，互不知情。<strong>G-Counter 的向量各不相同但信息都在</strong>；LWW 只保留了各自的一个数字，一旦合并就只能留一个。</p>';
+  else if(conv(gvals)&&conv(lvals)){
+    const lost=S4.clicks-lvals[0];
+    note='<p><strong style="color:var(--ok)">G-Counter = '+gvals[0]+'</strong>，等于真实点击数 '+S4.clicks+'，一次不多一次不少。逐位取最大保留了每个副本的全部贡献。</p>'+
+      '<p style="margin-bottom:0"><strong style="color:var(--crit)">LWW = '+lvals[0]+'</strong>，'+
+      (lost>0?'丢了 '+lost+' 次点击。合并时只留下了时间戳最大的那个副本的数字，其他副本在分区期间的增量全部消失。'
+             :'这一次恰好没丢（只有一个副本在分区期间被点过）。多点几个副本再试。')+
+      '<br><em>两者都"收敛"了——但收敛不等于正确。这就是 §2.6 自测题 7 的那个区别。</em></p>'+
+      (S4.merged>1?'<p style="margin:8px 0 0;color:var(--ok);font-size:13.5px">你已经合并了 '+S4.merged+' 次，G-Counter 的值没有变化——<strong>逐位取最大是幂等的</strong>，重复合并无害。这正是它能在不可靠网络上随便重传的原因。</p>':'');
+  }
+  $("#o4").innerHTML='<div class="note '+(S4.part?"warn":(S4.clicks?"ok":""))+'" style="margin:0">'+
+    (S4.clicks?'<div class="note-h"><span class="dot" style="background:'+(S4.part?cv("--warn"):cv("--ok"))+'"></span>'+
+      (S4.part?"分区中":"合并完成")+'</div>':'')+note+
+    (S4.log.length?'<div style="margin-top:10px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);max-height:96px;overflow-y:auto">'+
+      S4.log.slice(-8).map(x=>"· "+x).join("<br>")+'</div>':'')+'</div>';
+}
+$("#b4p").onclick=()=>{S4.part=true;S4.log.push("网络分区：三个副本互相隔离");draw4();};
+[0,1,2].forEach(i=>$("#b4inc"+i).onclick=()=>inc4(i));
+$("#b4heal").onclick=heal4;
+$("#b4clr").onclick=()=>{S4.part=false;S4.ts=0;S4.merged=0;S4.clicks=0;
+  S4.g=[[0,0,0],[0,0,0],[0,0,0]];S4.lw=[{v:0,t:0},{v:0,t:0},{v:0,t:0}];S4.log=[];draw4();};
+draw4();
+})();
+</script>
+<script>/* 把没包在滚动容器里的表格自动包起来，防止窄屏横向溢出 */
+(function(){var f=function(){document.querySelectorAll("main table").forEach(function(t){
+  var p=t.parentElement; if(p&&p.classList.contains("grid-wrap"))return;
+  var d=document.createElement("div"); d.className="grid-wrap"; p.insertBefore(d,t); d.appendChild(t);});};
+f(); new MutationObserver(f).observe(document.querySelector("main"),{childList:true,subtree:true});})();
+</script>
+</body>
+</html>
