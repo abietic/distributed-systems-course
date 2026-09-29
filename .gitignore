@@ -27,3 +27,11 @@ credentials.json
 coverage/
 .coverage/
 .cache/
+
+# Local-only: original transcripts, event streams, and the redaction map
+notes/private/
+notes/raw/
+
+# Python bytecode
+__pycache__/
+*.pyc

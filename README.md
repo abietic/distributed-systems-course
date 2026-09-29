@@ -105,6 +105,12 @@ java Lab00.java -loss 0.5 -retry 10 -n 500 -seed 7 -crash 0.2
 ```
 distributed-systems-course/
 ├── README.md
+├── CLAUDE.md                # 与 Claude 续学的约定（开场读什么、每轮怎么记录）
+├── notes/                   # 可公开的学习记录（已脱敏）
+│   ├── progress-review.md   # 学习进度、作答记录、待处理勘误
+│   ├── questions.md         # 追问索引（原话 + 结论 + 答案位置）
+│   ├── sessions/            # 会话记录（按天，已脱敏）
+│   └── tools/               # 导入恢复会话、脱敏检查的脚本
 ├── courseware/
 │   ├── ch00-intro.html      # 第 0 章课件（6 个模拟实验 + 12 道自测题）
 │   ├── ch01-time-order.html # Part 1 课件（时空图编辑器 + LWW 复现 + HLC，10 道自测题）
