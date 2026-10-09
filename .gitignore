@@ -27,3 +27,10 @@ credentials.json
 coverage/
 .coverage/
 .cache/
+
+# Local-only: unmasked originals and the redaction map
+notes/private/
+
+# Python bytecode
+__pycache__/
+*.pyc
