@@ -1,6 +1,6 @@
 # 给 Claude 的工作约定
 
-这是一个和 Claude 一起做的分布式系统交互式学习仓库。可公开的学习记录保存在 `notes/`，**每次会话都要接着往下写**，好让学习者随时回顾、随时续学。原始事件流只留在本地。
+这是一个和 Claude 一起做的分布式系统交互式学习仓库。脱敏后的学习记录和原始底稿保存在 `notes/`，**每次会话都要接着往下写**，好让学习者随时回顾、随时续学。未脱敏原文只留在本地 `notes/private/`。
 
 ## 开场（每次新会话）
 
@@ -32,7 +32,7 @@
 > 改动：本轮新建或修改了哪些文件
 ```
 
-**2. 原始底稿**：在本地 `notes/raw/sNN-YYYY-MM-DD/rNN_YYYY-MM-DD_HHMM/full.md` 里记下本轮工具调用的目的和结果摘要。`notes/raw/` 不进入公开仓库；会话里导不出系统原始事件时，在文件开头注明这份底稿是手工整理的。
+**2. 原始底稿**：在 `notes/raw/sNN-YYYY-MM-DD/rNN_YYYY-MM-DD_HHMM/full.md` 里记下本轮工具调用的目的和结果摘要，先脱敏再纳入公开仓库；会话里导不出系统原始事件时，在文件开头注明这份底稿是手工整理的。
 
 **3. 问题索引**：学习者提出新问题时，在 `notes/questions.md` 对应会话的表里追加一行。编号接着全局最大值往下排，只增不改。
 
@@ -60,7 +60,7 @@
    ```
    python3 notes/tools/import_session.py --src notes/private/<恢复目录名> --code <代号> --sid <会话ID缩写> [--gap 起-止]
    ```
-   它会脱敏、按对话轮切分到本地 `notes/raw/<代号>-<sid>/`、生成按天的会话记录，并自检两件事：没有脱敏残留；每句话都在记录里。公开提交前，还要检查记录中的绝对路径、私有 IP 和会话标识。
+   它会统一脱敏事件流与可读版、按对话轮切分到 `notes/raw/<代号>-<sid>/`、生成按天的会话记录，并自检：事件条数守恒、问答内容完整、没有脱敏残留。UUID 与账号标识使用一致的匿名编号，保留调用关联；不透明 base64 数据和签名使用脱敏占位符。公开提交前运行 `python3 notes/tools/check_redaction.py`，同时检查 `raw/` 和 `sessions/`。
 3. 自检报出新的内部名称时：先补映射，再重跑。
 4. 用真实记录更新 `progress-review.md`、`questions.md`、`notes/README.md`，把原来的推测换掉。
 
@@ -73,7 +73,7 @@
 - 在 session 文件顶部的「本次小结」里写 3–5 条要点。
 - 学完一章，或产出了新课件 / 新 Lab：更新 `notes/progress-review.md`，以及根目录 `README.md` 的学习路线表。
 - 发现勘误：先改正文，再在对应章节的追问篇或勘误表、README 的勘误段里各记一笔。在课件改好之前，先列在 `progress-review.md` 的「待处理的勘误」里。
-- git：学习者同意把公开记录纳入 git。会话结束时先跑脱敏检查，然后只提交 `notes/README.md`、`notes/progress-review.md`、`notes/questions.md`、`notes/sessions/`、`notes/tools/`、`CLAUDE.md` 和本次课程改动。不要提交 `notes/raw/` 或 `notes/private/`。提交信息写 `notes: session YYYY-MM-DD sNN <主题>`。**学习者没要求就不 push。**
+- git：学习者同意把脱敏后的公开记录和原始底稿纳入 git。会话结束时先跑脱敏检查，然后提交 `notes/README.md`、`notes/progress-review.md`、`notes/questions.md`、`notes/sessions/`、`notes/raw/`、`notes/tools/`、`CLAUDE.md` 和本次课程改动。不要提交 `notes/private/`。提交信息写 `notes: session YYYY-MM-DD sNN <主题>`。**学习者没要求就不 push。**
 
 ## 课程产出的既有约定
 

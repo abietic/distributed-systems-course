@@ -6,24 +6,14 @@ on a fresh clone too, where notes/private/redaction-map.json is unavailable.
 """
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
+from public_redaction import IDENTIFIER_FIELDS, PATTERNS, SECRET_FIELDS, strings
 
 
 MAP_PATH = Path("notes/private/redaction-map.json")
-PRIVATE_PATTERNS = {
-    "email": re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"),
-    "home path": re.compile(r"/(?:Users|home)/[A-Za-z0-9_.-]+/"),
-    "temporary path": re.compile(r"/(?:tmp|var/folders|mnt/data)/[^\s`\"'<>]+"),
-    "private IP": re.compile(
-        r"(?<!\d)(?:10\.(?:\d{1,3}\.){2}\d{1,3}|"
-        r"192\.168\.(?:\d{1,3}\.)\d{1,3}|"
-        r"172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3})(?!\d)"
-    ),
-    "UUID": re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I),
-}
+PRIVATE_PATTERNS = PATTERNS
 
 
 def public_paths():
@@ -34,6 +24,22 @@ def public_paths():
     return [Path(p.decode()) for p in output.split(b"\0") if p]
 
 
+def metadata_findings(value):
+    findings = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(item, str) and item and not item.startswith(("〔", "[omitted]", "[已")):
+                if key.lower() in IDENTIFIER_FIELDS:
+                    findings.add("unmasked metadata ID")
+                if key.lower() in SECRET_FIELDS:
+                    findings.add("unmasked credential/signature field")
+            findings.update(metadata_findings(item))
+    elif isinstance(value, list):
+        for item in value:
+            findings.update(metadata_findings(item))
+    return findings
+
+
 def main():
     words = []
     if MAP_PATH.exists():
@@ -42,6 +48,9 @@ def main():
 
     failures = []
     for path in public_paths():
+        if path.parts[:2] == ("notes", "private"):
+            failures.append(f"{path}: private originals must not be tracked")
+            continue
         if not path.is_file():
             continue
         try:
@@ -49,11 +58,22 @@ def main():
         except UnicodeDecodeError:
             continue
         problems = []
-        lowered = re.sub(r"[A-Za-z0-9+/=]{200,}", "", content).casefold()
+        lowered = content.casefold()
         if any(word in lowered for word in words):
             problems.append("local forbidden term")
-        if path.parts[:2] == ("notes", "sessions"):
+        if path.parts[:2] in (("notes", "sessions"), ("notes", "raw")):
             problems += [name for name, pattern in PRIVATE_PATTERNS.items() if pattern.search(content)]
+            if path.suffix == ".jsonl":
+                try:
+                    # Decode escaped JSON strings before checking embedded tool content.
+                    events = [json.loads(line) for line in content.splitlines() if line.strip()]
+                    problems += sorted(metadata_findings(events))
+                    content = "\n".join(text for event in events for text in strings(event))
+                    problems += [name for name, pattern in PRIVATE_PATTERNS.items() if pattern.search(content)]
+                    if any(word in content.casefold() for word in words):
+                        problems.append("escaped local forbidden term")
+                except json.JSONDecodeError:
+                    problems.append("invalid JSONL")
         if problems:
             failures.append(f"{path}: {', '.join(problems)}")
 

@@ -5,9 +5,9 @@
 
 它做四件事：
   1. 脱敏：按本地的 notes/private/redaction-map.json 替换内部名称；课程目录以外的本地目录列表整段抹掉；
-     环境元数据（可用工具 / MCP 服务器 / 插件 / 命令列表）移除；thinking 的加密签名移除。
+     标识与本机路径使用一致的匿名编号；环境元数据、加密签名和不透明 base64 数据使用占位符。
      映射文件只在本地，不进 git。
-  2. 按「对话轮」切分原始文件，写到 notes/raw/<code>-<sid>/rNN_<日期>_<时分>/
+  2. 按「对话轮」切分脱敏文件，写到 notes/raw/<code>-<sid>/rNN_<日期>_<时分>/
   3. 生成按天整理的逐字会话记录 notes/sessions/<日期>-<code>-rNN[-rMM].md
   4. 自检：脱敏后不得残留 forbidden 词；每一条用户消息、Claude 对你说的每一段话、
      每一道选择题和你的选择，都必须原样出现在逐字记录里。任何一项不通过就报错退出。
@@ -18,6 +18,7 @@
       --gap 3660-3892
 """
 import argparse, copy, datetime, json, os, re, sys, collections
+from public_redaction import PATTERNS, SECRET_FIELDS, PublicMasker
 
 CST = datetime.timezone(datetime.timedelta(hours=8))
 ENV_REDACTED = "[已移除：环境元数据]"
@@ -32,15 +33,16 @@ class Redactor:
         self.pairs = m["replace"]
         self.markers = m.get("redact_tool_results_containing", [])
         self.forbidden = m.get("forbidden", [])
+        self.public = PublicMasker()
 
     def s(self, text):
         for a, b in self.pairs:
             text = text.replace(a, b)
-        return text
+        return self.public.text(text)
 
     def deep(self, o):
         if isinstance(o, dict):
-            return {k: ("[omitted]" if k == "signature" else self.deep(v)) for k, v in o.items()}
+            return {self.s(k): ("〔已脱敏：凭据或签名〕" if k.lower() in SECRET_FIELDS and v else self.deep(v)) for k, v in o.items()}
         if isinstance(o, list):
             return [self.deep(v) for v in o]
         if isinstance(o, str):
@@ -48,10 +50,10 @@ class Redactor:
         return o
 
     def hits(self, text):
-        # 图片等 base64 数据里会偶然拼出 forbidden 词，检查前先去掉长 base64 串
-        text = re.sub(r"[A-Za-z0-9+/=]{200,}", "", text)
         low = text.lower()
-        return [w for w in self.forbidden if w.lower() in low]
+        hits = ["local forbidden term" for w in self.forbidden if w.lower() in low]
+        hits += [name for name, pattern in PATTERNS.items() if pattern.search(text)]
+        return hits
 
 
 def sanitize_events(events, R):
@@ -392,6 +394,9 @@ def main():
 
     R = Redactor(a.map)
     raw_events = [json.loads(l) for l in open(os.path.join(a.src, "events.jsonl"), encoding="utf-8")]
+    raw_full = open(os.path.join(a.src, "full.md"), encoding="utf-8").read()
+    raw_conversation = open(os.path.join(a.src, "conversation.md"), encoding="utf-8").read()
+    R.public.prime(raw_events, raw_full, raw_conversation)
     raw_events.sort(key=lambda e: int(e["sequence_num"]))
     events, red_ids = sanitize_events(raw_events, R)
 
@@ -430,10 +435,11 @@ def main():
     raw_dir = os.path.join(a.repo, "notes", "raw", f"{a.code}-{a.sid}")
     ses_dir = os.path.join(a.repo, "notes", "sessions")
     os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(ses_dir, exist_ok=True)
 
     # 1) 原始底稿：按轮切分
-    full = sanitize_md(open(os.path.join(a.src, "full.md"), encoding="utf-8").read(), R)
-    conv = sanitize_md(open(os.path.join(a.src, "conversation.md"), encoding="utf-8").read(), R)
+    full = sanitize_md(raw_full, R)
+    conv = sanitize_md(raw_conversation, R)
     starts_t = [rd["t0"] for rd in rounds]
     full_parts = split_md_by_rounds(full, starts_t)
     conv_parts = split_md_by_rounds(conv, starts_t)
@@ -443,8 +449,8 @@ def main():
         with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8") as f:
             for e in rd["events"]:
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
-        open(os.path.join(d, "full.md"), "w", encoding="utf-8").write(fp)
-        open(os.path.join(d, "conversation.md"), "w", encoding="utf-8").write(cp)
+        open(os.path.join(d, "full.md"), "w", encoding="utf-8").write(public_sanitize(fp))
+        open(os.path.join(d, "conversation.md"), "w", encoding="utf-8").write(public_sanitize(cp))
         written += [os.path.join(d, x) for x in ("events.jsonl", "full.md", "conversation.md")]
     if tail:
         t0 = cst(tail[0]["created_at"])
@@ -466,10 +472,10 @@ def main():
                 "> 这份记录由 `notes/tools/import_session.py` 从恢复出的原始事件自动生成，**不要手改**；要补充说明请写在 `notes/README.md` 或 `notes/progress-review.md`。",
                 "> - 公开记录保留问答内容，内部名称、本地路径、私有 IP 和会话标识已替换。",
                 "> - Claude 回答里的 Markdown 标题降了两级，以免打乱这份记录的目录。",
-                "> - 工具调用压缩成「操作明细」；完整输入输出只在本地原始底稿里。\n",
+                "> - 工具调用压缩成「操作明细」；脱敏后的完整输入输出在对应的原始底稿里。\n",
                 "| 轮次 | 时间（北京时间） | 事件序号 | 原始底稿 |", "|---|---|---|---|"]
         for rd in rds:
-            body.append(f"| R{rd['no']:02d} | {rd['t0']:%m-%d %H:%M} → {rd['t_last']:%m-%d %H:%M} | {rd['lo']}–{rd['hi']} | 本地保存 |")
+            body.append(f"| R{rd['no']:02d} | {rd['t0']:%m-%d %H:%M} → {rd['t_last']:%m-%d %H:%M} | {rd['lo']}–{rd['hi']} | [原始底稿](../raw/{a.code}-{a.sid}/{rd['tag']}/) |")
         body.append("")
         for rd in rds:
             text, must = render_round(rd, rd["events"], tool_uses, tool_results)
@@ -507,7 +513,8 @@ def main():
            "- `full.md`：恢复工具生成的完整可读版（含工具调用与结果）",
            "- `conversation.md`：恢复工具生成的对话版（只有双方的话）\n",
            "脱敏做了这些事：内部系统名 / 表名 / 邮箱 / 用户名 / 组织 ID 换成〔…〕占位符；课程目录以外的本地目录列表整段抹掉；",
-           "环境元数据（可用工具、MCP 服务器、插件、命令列表）移除；thinking 的加密签名移除。未脱敏的原文只在本地 `notes/private/`（不进 git）。\n",
+           "UUID、账号与会话标识按统一的匿名编号替换，同一个标识在事件流和可读版中保持一致；本机路径、邮箱、私有 IP 也替换为匿名编号。",
+           "环境元数据（可用工具、MCP 服务器、插件、命令列表）、签名与截图等不透明 base64 数据使用脱敏占位符；字段、事件顺序、序号和时间保留。未脱敏原文只在本地 `notes/private/`（不进 git）。\n",
            "| 文件夹 | 事件序号 | 事件数 | 时间（北京时间） |", "|---|---|---|---|"]
     for rd in rounds:
         idx.append(f"| [{rd['tag']}/]({rd['tag']}/) | {rd['lo']}–{rd['hi']} | {len(rd['events'])} | {rd['t0']:%m-%d %H:%M} → {rd['t_last']:%m-%d %H:%M} |")
@@ -543,6 +550,7 @@ def main():
         "seq_range": [seqs[0], seqs[-1]], "gap": a.gap,
         "rounds": [{"no": rd["no"], "tag": rd["tag"], "seq": [rd["lo"], rd["hi"]], "events": len(rd["events"])} for rd in rounds],
         "tail_events": len(tail), "redacted_tool_results": len(red_ids),
+        "masked_identifiers": len(R.public.identifiers),
         "session_files": [os.path.basename(p) for p in session_files],
         "fragments_checked": n_checked, "problems": problems,
     }

@@ -110,6 +110,7 @@ distributed-systems-course/
 │   ├── progress-review.md   # 学习进度、作答记录、待处理勘误
 │   ├── questions.md         # 追问索引（原话 + 结论 + 答案位置）
 │   ├── sessions/            # 会话记录（按天，已脱敏）
+│   ├── raw/                 # 脱敏事件流与原始底稿，可追溯课程内容
 │   └── tools/               # 导入恢复会话、脱敏检查的脚本
 ├── courseware/
 │   ├── ch00-intro.html      # 第 0 章课件（6 个模拟实验 + 12 道自测题）
